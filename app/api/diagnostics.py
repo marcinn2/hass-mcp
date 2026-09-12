@@ -100,7 +100,7 @@ async def diagnose_entity(entity_id: str) -> dict[str, Any]:
             diagnosis["recommendations"].append("Check if device is powered on and connected")
 
     # Check for errors in related integrations
-    domain = entity_id.split(".")[0]
+    domain = entity_id.split(".", maxsplit=1)[0]
     integrations = await get_integrations(domain=domain)
 
     # Check for errors in integrations list response

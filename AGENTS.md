@@ -2,6 +2,33 @@
 
 This document provides comprehensive guidance for AI coding agents working on the hass-mcp repository. It covers architecture, conventions, testing requirements, and development workflows.
 
+## Fork Lineage
+
+This repository is `marcinn2/hass-mcp`, a fork of `mmornati/hass-mcp`, which is
+a fork of the original `voska/hass-mcp`.
+
+```
+voska/hass-mcp          original implementation
+  └── mmornati/hass-mcp     modular rewrite, caching, VectorDB, docs, CI
+        └── marcinn2/hass-mcp   this repository
+```
+
+Git remote: `origin` is this fork. No `upstream` remote is configured — the
+parent fork's history is already part of this repository. To pull later changes
+from it, add it back on demand:
+
+```bash
+git remote add upstream https://github.com/mmornati/hass-mcp.git
+git fetch upstream && git log upstream/master..HEAD
+```
+
+When attributing work, note that most of what distinguishes this project from
+`voska` was inherited from the parent fork, not written here. The README's
+"Inherited from the Parent Fork" and "Added in This Fork" sections record the
+split; keep them accurate when adding features, and credit sibling forks in
+"Other Sources" when porting from them.
+
+
 ## Table of Contents
 
 - [Project Overview](#project-overview)
@@ -235,7 +262,7 @@ The project consolidates 92 specialized tools into 33 unified tools:
 
 ```bash
 # Clone repository
-git clone https://github.com/mmornati/hass-mcp.git
+git clone https://github.com/marcinn2/hass-mcp.git
 cd hass-mcp
 
 # Setup development environment (recommended)
@@ -622,9 +649,10 @@ check_untyped_defs = true
 | Workflow | Trigger | Purpose |
 |----------|---------|---------|
 | `test.yml` | push, PR | Run test suite |
-| `validate.yml` | push, PR | Lint, type check, security, coverage |
-| `docker.yml` | push, PR | Build Docker image |
-| `release.yml` | tag push | Publish to Docker Hub, PyPI |
+| `validate.yml` | push, PR | Lint, type check, security, dependency audit, coverage |
+| `docker.yml` | push to default branch, `v*` tags | Build and push images to `ghcr.io/marcinn2/hass-mcp` |
+| `release.yml` | manual dispatch | Sync version, tag, create GitHub release |
+| `pypi.yml` | manual dispatch (disabled) | PyPI publishing, gated off by `ENABLE_PYPI_PUBLISH` |
 | `docs-deploy.yml` | push to main | Deploy docs to GitHub Pages |
 
 ### CI Requirements Before Merge
@@ -747,7 +775,7 @@ uv run mypy app/ --ignore-missing-imports
 
 ## Additional Resources
 
-- **Documentation Site**: https://mmornati.github.io/hass-mcp
+- **Documentation Site**: https://marcinn2.github.io/hass-mcp
 - **Home Assistant API**: https://www.home-assistant.io/integrations/api/
 - **MCP Protocol**: https://modelcontextprotocol.io/
 - **FastMCP**: https://github.com/jlowin/fastmcp

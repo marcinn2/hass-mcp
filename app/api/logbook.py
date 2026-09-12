@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from app.api.base import BaseAPI
+from app.core import policy
 from app.core.decorators import handle_api_errors
 
 logger = logging.getLogger(__name__)
@@ -118,6 +119,10 @@ async def get_entity_logbook(entity_id: str, hours: int = 24) -> list[dict[str, 
         - Use this to debug specific entity behavior
         - Check logbook to understand entity state changes over time
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_read(entity_id)) is not None:
+        return [refusal]
+
     return await get_logbook(entity_id=entity_id, hours=hours)
 
 

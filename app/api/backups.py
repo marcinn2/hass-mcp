@@ -12,6 +12,7 @@ import httpx
 from app.config import HA_URL, get_ha_headers
 from app.core import get_client
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -216,7 +217,7 @@ async def restore_backup(
 
     try:
         response = await client.post(
-            f"{HA_URL}/api/hassio/backups/{backup_slug}/{endpoint}",
+            f"{HA_URL}/api/hassio/backups/{quote_segment(backup_slug)}/{endpoint}",
             headers=get_ha_headers(),
             json=payload,
         )
@@ -281,7 +282,7 @@ async def delete_backup(backup_slug: str) -> dict[str, Any]:
 
     try:
         response = await client.delete(
-            f"{HA_URL}/api/hassio/backups/{backup_slug}",
+            f"{HA_URL}/api/hassio/backups/{quote_segment(backup_slug)}",
             headers=get_ha_headers(),
         )
 

@@ -5,6 +5,7 @@ This module provides shared utilities including:
 - Decorators for async handlers and error handling
 - Type definitions
 - Error handling utilities
+- URL construction helpers
 """
 
 from app.core.client import cleanup_client, get_client
@@ -16,6 +17,7 @@ from app.core.types import (
     F,
     T,
 )
+from app.core.urls import quote_path, quote_segment
 
 __all__ = [
     "cleanup_client",
@@ -27,4 +29,6 @@ __all__ = [
     "DOMAIN_IMPORTANT_ATTRIBUTES",
     "F",
     "T",
+    "quote_path",
+    "quote_segment",
 ]

@@ -12,6 +12,7 @@ from typing import Any, TypeVar, cast
 import httpx
 
 from app.config import HA_TOKEN, HA_URL
+from app.core.policy import PolicyViolation
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +67,9 @@ def handle_api_errors(func: F) -> F:
 
             # Call the original function
             return await func(*args, **kwargs)
+        except PolicyViolation as e:
+            # Refused by the access policy, not a Home Assistant failure.
+            return format_error(str(e))
         except httpx.ConnectError:
             return format_error(f"Connection error: Cannot connect to Home Assistant at {HA_URL}")
         except httpx.TimeoutException:

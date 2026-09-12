@@ -1,0 +1,14 @@
+# Documentation build dependencies.
+#
+# Used by .github/workflows/docs-deploy.yml and docs-preview.yml, and for
+# building the docs locally:
+#
+#     pip install -r docs/requirements.txt
+#     mkdocs serve
+#
+# Only the plugins configured in mkdocs.yml are listed. mkdocs itself and
+# pymdown-extensions (for the pymdownx.* markdown extensions) arrive as
+# dependencies of mkdocs-material.
+
+mkdocs-material>=9.5
+mkdocs-git-revision-date-localized-plugin>=1.2

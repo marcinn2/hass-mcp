@@ -6,7 +6,7 @@ If you're encountering "Getting signed artifact URL failed" or "Cannot find any 
 
 ### 1. Enable GitHub Pages
 
-1. Go to your repository: `https://github.com/mmornati/hass-mcp`
+1. Go to your repository: `https://github.com/marcinn2/hass-mcp`
 2. Navigate to **Settings** → **Pages**
 3. Under **Source**, select **GitHub Actions** (NOT "Deploy from a branch")
 4. Save the changes
@@ -79,7 +79,7 @@ After configuring GitHub Pages:
 3. **Run workflow manually**: Go to Actions tab, select "Deploy Documentation", click "Run workflow"
 4. **Check workflow logs**: Review the build and deploy job logs for any errors
 5. **Verify deployment**: Once successful, your docs should be available at:
-   - `https://mmornati.github.io/hass-mcp/`
+   - `https://marcinn2.github.io/hass-mcp/`
 
 ## Troubleshooting
 

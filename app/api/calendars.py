@@ -10,6 +10,7 @@ from typing import Any, cast
 from app.api.base import BaseAPI
 from app.api.entities import get_entities
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -127,7 +128,7 @@ async def get_calendar_events(
     end_iso = end_date if "T" in end_date else f"{end_date}T23:59:59"
 
     response = await _calendars_api.get(
-        f"/api/calendars/{entity_id}",
+        f"/api/calendars/{quote_segment(entity_id)}",
         params={"start_date_time": start_iso, "end_date_time": end_iso},
     )
 
@@ -183,4 +184,6 @@ async def create_calendar_event(
     if description:
         payload["description"] = description
 
-    return await _calendars_api.post(f"/api/calendars/{entity_id}/events", data=payload)
+    return await _calendars_api.post(
+        f"/api/calendars/{quote_segment(entity_id)}/events", data=payload
+    )

@@ -10,6 +10,8 @@ import os
 from pathlib import Path
 from typing import Any
 
+from app.config_file import get_section
+
 logger = logging.getLogger(__name__)
 
 # Try to import yaml, but make it optional
@@ -120,6 +122,42 @@ class VectorDBConfig:
             logger.error(f"Failed to load configuration file {config_file}: {e}")
             return {}
 
+    def _merge_section(self, section: dict[str, Any]) -> None:
+        """
+        Merge one configuration mapping over the current values.
+
+        Nested "embeddings", "indexing" and "search" objects are flattened onto
+        the prefixed keys used internally, and common aliases are accepted.
+
+        Args:
+            section: Configuration mapping to merge (ignored when empty)
+        """
+        if not section:
+            return
+
+        section = dict(section)
+
+        if "embeddings" in section:
+            embeddings = dict(section.pop("embeddings"))
+            # Map common aliases
+            if "model" in embeddings:
+                embeddings["embedding_model"] = embeddings.pop("model")
+            if "model_name" in embeddings:
+                embeddings["embedding_model_name"] = embeddings.pop("model_name")
+            if "dimensions" in embeddings:
+                embeddings["embedding_dimensions"] = embeddings.pop("dimensions")
+            if "device" in embeddings:
+                embeddings["embedding_device"] = embeddings.pop("device")
+            self._config_data.update(embeddings)
+        if "indexing" in section:
+            for key, value in section.pop("indexing").items():
+                self._config_data[f"indexing_{key}"] = value
+        if "search" in section:
+            for key, value in section.pop("search").items():
+                self._config_data[f"search_{key}"] = value
+
+        self._config_data.update(section)
+
     def _load_configuration(self, config_file: str | None = None) -> None:
         """
         Load configuration from files and environment variables.
@@ -166,37 +204,12 @@ class VectorDBConfig:
             "enabled": True,
         }
 
-        # Load from config file
-        file_config = self._load_config_file(config_file)
-
-        # Merge defaults, file config, and environment variables
-        # Environment variables take precedence
         self._config_data = defaults.copy()
 
-        # Merge file config
-        if file_config:
-            # Handle nested structure
-            if "embeddings" in file_config:
-                embeddings = file_config.pop("embeddings")
-                # Map common aliases
-                if "model" in embeddings:
-                    embeddings["embedding_model"] = embeddings.pop("model")
-                if "model_name" in embeddings:
-                    embeddings["embedding_model_name"] = embeddings.pop("model_name")
-                if "dimensions" in embeddings:
-                    embeddings["embedding_dimensions"] = embeddings.pop("dimensions")
-                if "device" in embeddings:
-                    embeddings["embedding_device"] = embeddings.pop("device")
-                self._config_data.update(embeddings)
-            if "indexing" in file_config:
-                indexing = file_config.pop("indexing")
-                for key, value in indexing.items():
-                    self._config_data[f"indexing_{key}"] = value
-            if "search" in file_config:
-                search = file_config.pop("search")
-                for key, value in search.items():
-                    self._config_data[f"search_{key}"] = value
-            self._config_data.update(file_config)
+        # Layer the "vector_db" section of the unified configuration file first,
+        # then a dedicated vectordb.json/yaml, then the environment.
+        self._merge_section(get_section("vector_db"))
+        self._merge_section(self._load_config_file(config_file))
 
         # Override with environment variables
         env_mappings = {

@@ -287,7 +287,7 @@ async def _find_entities_by_vector_similarity(
 
             # Generate search text from entity
             friendly_name = entity.get("attributes", {}).get("friendly_name", "")
-            domain = entity_id.split(".")[0] if "." in entity_id else ""
+            domain = entity_id.split(".", maxsplit=1)[0] if "." in entity_id else ""
             search_text = f"{friendly_name} {domain}"
 
             # Search vectors
@@ -479,7 +479,7 @@ async def get_entity_suggestions(
     attributes = entity.get("attributes", {})
     area_id = attributes.get("area_id")
     device_id = attributes.get("device_id")
-    domain = entity_id.split(".")[0] if "." in entity_id else None
+    domain = entity_id.split(".", maxsplit=1)[0] if "." in entity_id else None
     friendly_name = attributes.get("friendly_name")
 
     # Collect suggestions from different sources

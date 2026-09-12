@@ -20,22 +20,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout PR
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0  # Required for git-revision-date-localized-plugin
 
       - name: Set up Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
       - name: Install dependencies
-        run: |
-          pip install mkdocs
-          pip install mkdocs-material
-          pip install mkdocs-minify-plugin
-          pip install mkdocs-redirects
-          pip install mkdocs-git-revision-date-localized-plugin
+        run: pip install -r docs/requirements.txt
 
       - name: Build MkDocs site
         run: |
@@ -43,8 +38,11 @@ jobs:
           echo "✅ Documentation built successfully"
 
       - name: Create preview info file
+        env:
+          # Computed here because the heredoc below is quoted (no expansion).
+          BUILD_DATE: ${{ github.event.pull_request.updated_at }}
         run: |
-          cat > site/PREVIEW_INFO.txt << 'EOF'
+          cat > site/PREVIEW_INFO.txt << EOF
           ════════════════════════════════════════════════════════════════
           📚 Documentation Preview Build
           ════════════════════════════════════════════════════════════════
@@ -52,7 +50,7 @@ jobs:
           This is a preview build of the documentation for PR #${{ github.event.pull_request.number }}
 
           Commit: ${{ github.sha }}
-          Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC')
+          Build Date: $(date -u '+%Y-%m-%d %H:%M:%S UTC') (commit pushed: ${BUILD_DATE})
 
           ════════════════════════════════════════════════════════════════
           📖 How to View This Preview
@@ -87,7 +85,7 @@ jobs:
           EOF
 
       - name: Upload Documentation Preview
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: documentation-preview-pr${{ github.event.pull_request.number }}
           path: ./site
@@ -95,14 +93,19 @@ jobs:
           retention-days: 30
           compression-level: 9
 
+      # The two steps below need a writable token. For pull requests from forks
+      # GITHUB_TOKEN is read-only regardless of the permissions block above, so
+      # they are best-effort: the build and the artifact still succeed.
       - name: Find existing comment
         id: find_comment
+        continue-on-error: true
         uses: peter-evans/find-comment@v4
         with:
           issue-number: ${{ github.event.pull_request.number }}
           body-includes: '📚 Documentation Preview'
 
       - name: Add or Update PR comment
+        continue-on-error: true
         uses: peter-evans/create-or-update-comment@v5
         with:
           comment-id: ${{ steps.find_comment.outputs.comment-id }}

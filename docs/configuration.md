@@ -2,7 +2,410 @@
 
 This page covers advanced configuration options for Hass-MCP.
 
+## Configuration Layers
+
+Settings come from three layers. The configuration file is the baseline, and
+environment variables override it:
+
+```
+built-in defaults  ->  configuration file  ->  environment variables
+```
+
+So you can commit a `hass-mcp.json` describing your setup and still override any
+single value per deployment — for example injecting `HA_TOKEN` as a secret, or
+setting `MCP_PORT` in a container — without editing the file.
+
+## Configuration File
+
+A single JSON document configures the whole server. Start from the annotated
+[`config/hass-mcp.example.json`](https://github.com/marcinn2/hass-mcp/blob/master/config/hass-mcp.example.json)
+in the repository root:
+
+```bash
+cp config/hass-mcp.example.json config/hass-mcp.json
+$EDITOR config/hass-mcp.json
+```
+
+### Location
+
+The file is found from `HASS_MCP_CONFIG_FILE` when set, otherwise by searching,
+in order:
+
+| Order | Location |
+|-------|----------|
+| 1 | `$HASS_MCP_CONFIG_FILE` (explicit path; a path that does not exist is an error) |
+| 2 | `./hass-mcp.json` (also `.hass-mcp.json`, `hass-mcp.yaml`, `hass-mcp.yml`) |
+| 3 | `./config/hass-mcp.json` (same alternative names) |
+| 4 | `$HASS_MCP_CONFIG_DIR/hass-mcp.json` |
+| 5 | `~/.hass-mcp/hass-mcp.json` |
+| 6 | `/etc/hass-mcp/hass-mcp.json` |
+
+If no file is found, Hass-MCP runs on defaults and environment variables alone.
+YAML is accepted at the same paths, but JSON is the documented format.
+
+### Structure
+
+Every section and key is optional; anything omitted falls back to its default.
+JSON has no comment syntax, so keys beginning with `$` (such as `$comment`) are
+ignored and can be used for notes.
+
+```json
+{
+  "home_assistant": {
+    "url": "http://homeassistant.local:8123",
+    "token": "YOUR_LONG_LIVED_ACCESS_TOKEN",
+    "ssl_verify": true
+  },
+  "server": {
+    "transport": "stdio",
+    "host": "127.0.0.1",
+    "port": 8000,
+    "log_level": "INFO"
+  },
+  "auth": {
+    "tokens": ["client-token"],
+    "allow_ha_tokens": false
+  },
+  "tools": {
+    "enabled": [],
+    "disabled": []
+  },
+  "policy": {
+    "read_only": false,
+    "entity_allowlist": [],
+    "control_denylist": []
+  },
+  "cache": {
+    "enabled": true,
+    "backend": "memory",
+    "default_ttl": 300,
+    "max_size": 1000,
+    "endpoints": {
+      "entities": { "ttl": 300, "get_state": { "ttl": 60 } },
+      "areas": 3600
+    }
+  },
+  "vector_db": {
+    "enabled": false,
+    "backend": "chroma",
+    "embeddings": { "model": "sentence-transformers", "model_name": "all-MiniLM-L6-v2" },
+    "search": { "default_limit": 10, "similarity_threshold": 0.7 }
+  }
+}
+```
+
+| Section | Covers | Overriding variables |
+|---------|--------|----------------------|
+| `home_assistant` | Connection to Home Assistant | `HA_URL`, `HA_TOKEN`, `HA_SSL_VERIFY` |
+| `server` | MCP transport, bind address, log level | `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT` (`PORT`), `LOG_LEVEL` |
+| `auth` | MCP bearer authentication (HTTP transports) | `MCP_AUTH_TOKENS`, `MCP_ALLOW_HA_TOKENS` |
+| `tools` | Which MCP tools are exposed | `MCP_TOOLS_ENABLED`, `MCP_TOOLS_DISABLED` |
+| `policy` | Read-only mode, entity allowlist, control denylist | `HASS_MCP_READ_ONLY`, `HASS_MCP_ENTITY_ALLOWLIST`, `HASS_MCP_CONTROL_DENYLIST` |
+| `cache` | Response caching and per-endpoint TTLs | `HASS_MCP_CACHE_*` |
+| `vector_db` | Semantic entity search | `HASS_MCP_VECTOR_DB_*`, `HASS_MCP_EMBEDDING_*`, `HASS_MCP_SEARCH_*`, `HASS_MCP_INDEXING_*` |
+
+Unknown top-level sections are ignored with a warning, which catches typos such
+as `home_asistant`. A malformed file is a startup error rather than a silent
+fallback to defaults, so a broken config never sends requests to the wrong
+Home Assistant instance.
+
+Per-endpoint cache TTLs have no environment equivalent, so the `cache.endpoints`
+map is only configurable through the file. See
+[Cache Configuration](caching/configuration.md) for its full schema.
+
+## Access Policy
+
+Three optional controls, **all permissive by default** — an unconfigured server
+behaves exactly as it did before this existed:
+
+| Setting | Default | Effect when set |
+|---|---|---|
+| `read_only` | `false` | `true` refuses every write: service calls and config CRUD. Reads keep working |
+| `entity_allowlist` | `[]` | **Empty allows everything.** Once any pattern is present the list is authoritative and unmatched entities are denied, for reads *and* writes |
+| `control_denylist` | `[]` | Empty denies nothing. A listed entity can be read but never controlled, even when it passes the allowlist |
+
+Both lists take exact entity IDs or fnmatch globs:
+
+```json
+{
+  "policy": {
+    "read_only": false,
+    "entity_allowlist": ["light.living_room", "sensor.gpu_*"],
+    "control_denylist": ["lock.*", "cover.garage_*"]
+  }
+}
+```
+
+```bash
+export HASS_MCP_READ_ONLY=false
+export HASS_MCP_ENTITY_ALLOWLIST="light.living_room,sensor.gpu_*"
+export HASS_MCP_CONTROL_DENYLIST="lock.*,cover.garage_*"
+```
+
+For long lists, keep patterns in a file — one per line, `#` starts a comment.
+Inline and file entries are combined:
+
+```bash
+export HASS_MCP_ENTITY_ALLOWLIST_FILE=/etc/hass-mcp/allowlist.txt
+export HASS_MCP_CONTROL_DENYLIST_FILE=/etc/hass-mcp/denylist.txt
+```
+
+### Where it is enforced
+
+**Read-only mode is enforced on the shared HTTP client**, as a request hook that
+refuses write methods. That covers every call site rather than only the ones
+routed through `call_service` — the API layer builds request URLs in ~30 places
+and several construct service calls directly, so a per-function check left real
+gaps. Requests added in future are covered automatically.
+
+`POST`-shaped reads stay allowed: `/api/template` and
+`/api/config/core/check_config` change nothing.
+
+**The allowlist and denylist are enforced per entity**, at each point an entity
+is named:
+
+| Path | Control |
+|---|---|
+| `call_service` | denylist + allowlist, per target entity |
+| `get_entity_state`, `get_entities`, `system_overview` | allowlist |
+| `get_entity_history`, `get_entity_history_range`, `get_entity_logbook` | allowlist |
+| `get_entity_statistics`, `get_entity_statistics_range` | allowlist |
+| `get_automation_traces`, `get_automation_execution_log` | allowlist |
+| `get_script_config` | allowlist |
+| `trigger_automation`, `enable_automation`, `disable_automation`, `run_script` | denylist + allowlist |
+| `manage_item` write actions | read-only |
+
+A refusal comes back as `{"error": ...}` naming the setting responsible, so the
+caller can tell policy apart from a Home Assistant failure.
+
+**One known gap.** `get_automation_config` and `update_automation` address Home
+Assistant's numeric automation *config* ID rather than an entity ID, so they
+cannot be matched against entity patterns. Both are covered by read-only mode,
+but not by the entity lists. Use `tools.disabled` if you need them off
+entirely.
+
+### Two caveats
+
+**Policy is fixed for the process lifetime.** Reads are filtered inside cached
+functions, so a cached result reflects the policy in force when it was computed.
+Changing policy means restarting the server.
+
+**This is a guardrail, not a security boundary.** It constrains what this server
+will do with its Home Assistant token; it does not reduce what that token can do.
+For a real boundary, issue a scoped Home Assistant token.
+
+### Adopting the stricter posture
+
+This layer is ported from
+[paultanger/ha-mcp-server](https://github.com/paultanger/ha-mcp-server), which
+defaults to read-only with a *fail-closed* allowlist — an empty list denies
+everything. That inversion is deliberate here: configuring nothing must not
+break an existing deployment. Their proposed configuration is written out in
+full as a `$comment_fork_proposal` block in
+[`config/hass-mcp.example.json`](https://github.com/marcinn2/hass-mcp/blob/master/config/hass-mcp.example.json).
+
+Note that with their posture the allowlist becomes mandatory: `read_only: false`
+plus an empty allowlist would be permissive here, but in a fail-closed design an
+empty allowlist denies every read.
+
+## Exposed Tools
+
+Hass-MCP knows how to expose **114** tools but exposes **35** by default.
+Most of the other 79 are the pre-consolidation originals that the unified tools
+replaced: they still work, but exposing all of them would fill every client's
+tool list — and its token budget — with near-duplicates. A handful are tools
+ported from sibling forks that are off for their own reasons — a generic REST
+passthrough, and read-only diagnostics for traces, updates and HACS. See the
+`$comment_disabled` block in the example config for the full breakdown.
+
+The surface is configurable:
+
+```json
+{
+  "tools": {
+    "enabled": [],
+    "disabled": ["restart_ha"]
+  }
+}
+```
+
+| Setting | Meaning |
+|---|---|
+| `enabled` omitted or `[]` | the default set of 35 tools |
+| `enabled: ["all"]` | every one of the 114 tools |
+| `enabled: ["get_entity", "list_items"]` | exactly those two |
+| `disabled: [...]` | subtracted from whatever `enabled` produced |
+
+`disabled` is applied last, so it trims the defaults without you having to
+restate them — `{"disabled": ["restart_ha"]}` gives 34 tools.
+
+Via the environment, both are comma-separated:
+
+```bash
+export MCP_TOOLS_ENABLED="get_entity,list_items,get_item"
+export MCP_TOOLS_DISABLED="restart_ha"
+```
+
+An unknown tool name is logged as a warning and ignored rather than failing
+startup, so a typo cannot take the server down. On boot the server reports what
+it settled on:
+
+```
+Exposing 35 of 114 available tools
+```
+
+### Which tools exist
+
+[`config/hass-mcp.example.json`](https://github.com/marcinn2/hass-mcp/blob/master/config/hass-mcp.example.json)
+lists the default set explicitly and names every non-default tool in a
+`$comment_disabled` block, grouped by module. The authoritative list lives in
+[`app/tools/registry.py`](https://github.com/marcinn2/hass-mcp/blob/master/app/tools/registry.py),
+where each entry records whether it is on by default.
+
+Two reasons you might narrow the surface: trimming the tool list reduces the
+tokens every request spends describing tools, and removing `restart_ha` (or the
+`manage_item` write paths) gives a read-mostly deployment.
+
+## MCP Bearer Authentication
+
+The HTTP transports (`streamable-http`, `sse`) **require** bearer
+authentication. Every request must carry
+`Authorization: Bearer <token>`, and the server refuses to start if no
+authentication is configured — better a clear startup error than a port that
+rejects everything while looking healthy.
+
+`stdio` is unaffected: it has no request layer, nothing is enforced, and the
+configured `HA_TOKEN` is used exactly as before.
+
+### How a token is handled
+
+| Incoming `Authorization` | `allow_ha_tokens` | Result |
+|---|---|---|
+| absent, or not `Bearer` | any | **401** `missing_token` |
+| listed in `auth.tokens` | any | **200** — Home Assistant calls use `home_assistant.token` |
+| not listed | `true` | **200** — the token becomes *that request's* Home Assistant token |
+| not listed | `false` | **401** `invalid_token` |
+
+The third row is the interesting one: it lets each client bring its own Home
+Assistant credential instead of sharing the server's. Home Assistant is then
+the authority on whether that token is valid, so an invalid one surfaces as an
+HA authentication error rather than a 401 from hass-mcp.
+
+A token listed in `auth.tokens` is never forwarded to Home Assistant, even when
+`allow_ha_tokens` is enabled.
+
+### Configuring it
+
+```json
+{
+  "server": { "transport": "streamable-http", "host": "0.0.0.0", "port": 8000 },
+  "auth": {
+    "tokens": ["client-one-token", "client-two-token"],
+    "allow_ha_tokens": false
+  }
+}
+```
+
+Or via the environment, which overrides the file:
+
+```bash
+export MCP_AUTH_TOKENS="client-one-token,client-two-token"
+export MCP_ALLOW_HA_TOKENS=false
+```
+
+- **`MCP_AUTH_TOKENS`** — comma-separated client tokens (a JSON array in the
+  file). Compared in constant time, so a match position cannot be inferred from
+  response timing.
+- **`MCP_ALLOW_HA_TOKENS`** — when `true`, an unrecognised token is treated as a
+  Home Assistant token for that request.
+
+Either one on its own is enough to start: with only `allow_ha_tokens` enabled
+the server acts as a pure pass-through and Home Assistant does all the
+validating.
+
+### Deployment postures
+
+`tokens` and `allow_ha_tokens` combine into four postures. Pick by asking whose
+Home Assistant credential should be used for a request.
+
+| `auth.tokens` | `auth.allow_ha_tokens` | Posture |
+|---|---|---|
+| set | `false` | **Shared credential.** Clients authenticate with tokens you issue; every Home Assistant call uses the server's `HA_TOKEN`. The usual choice. |
+| empty | `true` | **Pass-through.** Every bearer *is* that request's Home Assistant token — Home Assistant does all validation, and each user's own HA permissions apply. |
+| set | `true` | **Mixed.** A listed token uses the server's credential; anything else is forwarded to Home Assistant. For trusted service clients alongside per-user ones. |
+| empty | `false` | **Refused at startup**, with a message naming both fixes. |
+
+A configured MCP token is never forwarded to Home Assistant, even in the mixed
+posture.
+
+**Shared credential** is the right default. Issue one token per client so they
+can be revoked individually, and rotate by adding the new token, moving clients
+over, then removing the old one.
+
+**Pass-through** is how you get multi-user behaviour, and the server can hold no
+Home Assistant credential at all — leave `HA_TOKEN` unset and every request
+brings its own:
+
+```bash
+export MCP_ALLOW_HA_TOKENS=true
+# HA_TOKEN deliberately unset
+```
+
+The trade-off is that a request arriving without a bearer token then has no Home
+Assistant access whatsoever, and the server can do nothing on its own behalf
+(no background work, no startup checks against Home Assistant).
+
+`stdio` sits outside all of this: no request layer, nothing enforced, and the
+configured `HA_TOKEN` used exactly as before.
+
+### Caching and per-user tokens
+
+When `allow_ha_tokens` is enabled, cache entries are partitioned per caller: the
+cache key includes a digest of the request's Home Assistant token. Two users
+issuing the same query do not share an entry, because Home Assistant answers
+each according to that user's permissions — and on a cache hit Home Assistant is
+never consulted, so a shared entry would bypass its permission model entirely.
+
+Single-token deployments are unaffected: with no per-request token the key is
+unpartitioned exactly as before, so no cache efficiency is lost.
+
+### Security notes
+
+- A rejected request never reaches the MCP server; the 401 carries a
+  `WWW-Authenticate: Bearer` header per RFC 6750.
+- `MCP_HOST` defaults to `127.0.0.1`. Binding `0.0.0.0` exposes the port, so put
+  it behind TLS and network controls — bearer tokens are credentials in
+  plaintext over HTTP.
+- With `allow_ha_tokens` enabled, anyone who can reach the port can supply a
+  Home Assistant token of their own. That is the intended way to support
+  multiple users, but it means the port must not be openly reachable.
+- Bearer tokens are plaintext credentials on the wire. These transports want TLS
+  in front of them, and `MCP_HOST` should stay bound as narrowly as the
+  deployment allows.
+- Generate tokens with something like `openssl rand -hex 32`, and keep them in
+  the environment rather than a committed configuration file.
+
+### Secrets
+
+Prefer environment variables for tokens and API keys, especially when the
+configuration file is committed to version control:
+
+```bash
+export HA_TOKEN="your-long-lived-token"
+```
+
+A full environment-variable template lives at
+[`config/hass-mcp.example.env`](https://github.com/marcinn2/hass-mcp/blob/master/config/hass-mcp.example.env),
+which lists every variable with its default:
+
+```bash
+cp config/hass-mcp.example.env .env
+```
+
 ## Environment Variables
+
+Every variable below overrides the corresponding configuration file value.
+
 
 Hass-MCP uses the following environment variables:
 
@@ -21,9 +424,47 @@ Hass-MCP uses the following environment variables:
 
 ### Optional Variables
 
+- **`HASS_MCP_CONFIG_FILE`**: Explicit path to the configuration file (optional)
+  - A path that does not exist is a startup error
+- **`HASS_MCP_CONFIG_DIR`**: Additional directory to search for the configuration file
 - **`HA_TIMEOUT`**: HTTP request timeout in seconds (default: 30)
 - **`LOG_LEVEL`**: Logging level (default: `INFO`)
   - Options: `DEBUG`, `INFO`, `WARNING`, `ERROR`
+  - `INFO` includes per-request lines naming entity IDs and search queries,
+    which are personal data. `WARNING` drops those and keeps errors — see
+    [Privacy & Personal Data](privacy.md#logs-contain-identifiers)
+  - Also settable as `server.log_level` in the configuration file
+
+### Transport Variables
+
+- **`MCP_TRANSPORT`**: Transport mode (default: `stdio`)
+  - Options: `stdio`, `sse`, `streamable-http`
+- **`MCP_HOST`**: Bind address for the HTTP transports (default: `127.0.0.1`)
+- **`MCP_PORT`**: Bind port for the HTTP transports (default: `8000`)
+- **`PORT`**: Alternative port variable for Smithery compatibility; `MCP_PORT` wins
+
+### Access Policy Variables
+
+- **`HASS_MCP_READ_ONLY`**: Refuse all writes (default: `false`)
+- **`HASS_MCP_ENTITY_ALLOWLIST`**: Comma-separated entity IDs or globs; empty
+  allows everything
+- **`HASS_MCP_CONTROL_DENYLIST`**: Comma-separated entity IDs or globs that can
+  be read but never controlled
+- **`HASS_MCP_ENTITY_ALLOWLIST_FILE`** / **`HASS_MCP_CONTROL_DENYLIST_FILE`**:
+  Newline-delimited pattern files, combined with the inline lists
+
+### Tool Surface Variables
+
+- **`MCP_TOOLS_ENABLED`**: Comma-separated allow-list of tools to expose
+  - Empty for the default 35; `all` for every one of the 114
+- **`MCP_TOOLS_DISABLED`**: Comma-separated tools to remove from that set
+
+### Authentication Variables
+
+- **`MCP_AUTH_TOKENS`**: Comma-separated bearer tokens that authenticate MCP clients
+  - Required for the HTTP transports unless `MCP_ALLOW_HA_TOKENS` is enabled
+- **`MCP_ALLOW_HA_TOKENS`**: Treat an unrecognised bearer token as that request's
+  Home Assistant token (default: `false`)
 
 ### SSL/TLS Configuration
 
@@ -58,7 +499,7 @@ Hass-MCP uses the following environment variables:
   "mcpServers": {
     "hass-mcp": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "mmornati/hass-mcp"],
+      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "ghcr.io/marcinn2/hass-mcp"],
       "env": {
         "HA_URL": "http://homeassistant.local:8123",
         "HA_TOKEN": "your_token_here"
@@ -75,7 +516,7 @@ Hass-MCP uses the following environment variables:
   "mcpServers": {
     "hass-mcp": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "-e", "HA_TIMEOUT", "mmornati/hass-mcp"],
+      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "-e", "HA_TIMEOUT", "ghcr.io/marcinn2/hass-mcp"],
       "env": {
         "HA_URL": "http://homeassistant.local:8123",
         "HA_TOKEN": "your_token_here",
@@ -93,7 +534,7 @@ Hass-MCP uses the following environment variables:
   "mcpServers": {
     "hass-mcp": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "-e", "LOG_LEVEL", "mmornati/hass-mcp"],
+      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "-e", "LOG_LEVEL", "ghcr.io/marcinn2/hass-mcp"],
       "env": {
         "HA_URL": "http://homeassistant.local:8123",
         "HA_TOKEN": "your_token_here",
@@ -113,7 +554,7 @@ For Home Assistant instances using self-signed SSL certificates:
   "mcpServers": {
     "hass-mcp": {
       "command": "docker",
-      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "-e", "HA_SSL_VERIFY", "mmornati/hass-mcp"],
+      "args": ["run", "-i", "--rm", "-e", "HA_URL", "-e", "HA_TOKEN", "-e", "HA_SSL_VERIFY", "ghcr.io/marcinn2/hass-mcp"],
       "env": {
         "HA_URL": "https://homeassistant.local:8123",
         "HA_TOKEN": "your_token_here",
@@ -141,7 +582,7 @@ For Home Assistant instances using a custom CA certificate:
         "-e", "HA_URL",
         "-e", "HA_TOKEN",
         "-e", "HA_SSL_VERIFY",
-        "mmornati/hass-mcp"
+        "ghcr.io/marcinn2/hass-mcp"
       ],
       "env": {
         "HA_URL": "https://homeassistant.local:8123",
@@ -169,7 +610,7 @@ For Docker Desktop on Mac/Windows:
         "-e", "HA_URL",
         "-e", "HA_TOKEN",
         "--network", "host",
-        "mmornati/hass-mcp"
+        "ghcr.io/marcinn2/hass-mcp"
       ],
       "env": {
         "HA_URL": "http://localhost:8123",

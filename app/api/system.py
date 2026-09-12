@@ -9,7 +9,7 @@ from typing import Any, cast
 
 from app.api.entities import filter_fields
 from app.config import HA_URL, get_ha_headers
-from app.core import DOMAIN_IMPORTANT_ATTRIBUTES, get_client
+from app.core import DOMAIN_IMPORTANT_ATTRIBUTES, get_client, policy
 from app.core.cache.config import get_cache_config
 from app.core.cache.decorator import cached
 from app.core.cache.manager import get_cache_manager
@@ -230,6 +230,10 @@ async def get_system_overview() -> dict[str, Any]:
         response = await client.get(f"{HA_URL}/api/states", headers=get_ha_headers(), timeout=30.0)
         response.raise_for_status()
         all_entities = cast(list[dict[str, Any]], response.json())
+
+        # system_overview fetches /api/states itself, bypassing get_entities, so
+        # the allowlist has to be applied here too.
+        all_entities = policy.filter_entities(all_entities)
 
         # Organize by domain
         domains: dict[str, dict[str, Any]] = {}

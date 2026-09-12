@@ -15,6 +15,31 @@ logger = logging.getLogger(__name__)
 _client: httpx.AsyncClient | None = None
 
 
+async def _enforce_policy(request: httpx.Request) -> None:
+    """
+    Refuse outgoing requests that the access policy disallows.
+
+    Installed as an httpx request hook so it applies to every call site. The
+    API layer builds request URLs in many places rather than funnelling through
+    one helper, so enforcing here is the only way to cover them all — including
+    any added later.
+
+    Args:
+        request: The outgoing request
+
+    Raises:
+        PolicyViolation: If read-only mode forbids this request
+    """
+    # Imported lazily: app.core.policy reads app.config, which imports this
+    # module's get_client indirectly.
+    from app.core.policy import PolicyViolation, request_denied  # noqa: PLC0415
+
+    reason = request_denied(request.method, request.url.path)
+    if reason:
+        logger.warning(reason)
+        raise PolicyViolation(reason)
+
+
 async def get_client() -> httpx.AsyncClient:
     """
     Get a persistent httpx client for Home Assistant API calls.
@@ -38,7 +63,11 @@ async def get_client() -> httpx.AsyncClient:
     if _client is None:
         ssl_verify = get_ssl_verify_value()
         logger.debug(f"Creating new HTTP client with SSL verify: {ssl_verify}")
-        _client = httpx.AsyncClient(timeout=10.0, verify=ssl_verify)
+        _client = httpx.AsyncClient(
+            timeout=10.0,
+            verify=ssl_verify,
+            event_hooks={"request": [_enforce_policy]},
+        )
     return _client
 
 

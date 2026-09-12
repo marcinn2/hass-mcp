@@ -15,6 +15,7 @@ from app.api.automations import (
     get_automation_config,
     get_automation_execution_log,
     get_automations,
+    reload_automations,
     trigger_automation,
     update_automation,
     validate_automation_config,
@@ -310,3 +311,26 @@ async def validate_automation_config_tool(config: dict[str, Any]) -> dict[str, A
     """
     logger.info("Validating automation config")
     return await validate_automation_config(config)
+
+
+async def reload_automations_tool() -> dict[str, Any]:
+    """
+    Reload all automations from Home Assistant's configuration.
+
+    Ported from the FriendlyVoid/hass-mcp fork. Use after editing automation
+    YAML outside Home Assistant, so the changes take effect without a restart.
+    Automations created or updated through this server's own tools are already
+    applied and do not need a reload.
+
+    Returns:
+        A dictionary with the result of the reload, or an "error" key on failure
+
+    Examples:
+        reload_automations() - Apply automation config changes made on disk
+
+    Best Practices:
+        - Prefer this over restart_ha when only automations changed
+        - Follow with list_items(item_type="automation") to confirm the result
+    """
+    logger.info("Reloading automations")
+    return await reload_automations()

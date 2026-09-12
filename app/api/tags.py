@@ -12,6 +12,7 @@ from app.api.base import BaseAPI
 from app.core.cache.decorator import cached, invalidate_cache
 from app.core.cache.ttl import TTL_LONG
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ async def delete_tag(tag_id: str) -> dict[str, Any]:
         - Remove or update automations before deleting tags
         - Verify tag_id exists before deleting
     """
-    return await _tags_api.delete(f"/api/tag/{tag_id}")
+    return await _tags_api.delete(f"/api/tag/{quote_segment(tag_id)}")
 
 
 @handle_api_errors

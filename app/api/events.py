@@ -10,6 +10,7 @@ from typing import Any
 from app.api.base import BaseAPI
 from app.api.logbook import get_logbook
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ async def fire_event(event_type: str, event_data: dict[str, Any] | None = None) 
         - Use events for inter-component communication
     """
     payload = event_data or {}
-    return await _events_api.post(f"/api/events/{event_type}", data=payload)
+    return await _events_api.post(f"/api/events/{quote_segment(event_type)}", data=payload)
 
 
 @handle_api_errors

@@ -426,6 +426,17 @@ def _build_cache_key(
 
     # Use CacheKeyBuilder to normalize parameters
     normalized_params = CacheKeyBuilder.normalize_params(params)
+
+    # Partition by caller when the request carries its own Home Assistant
+    # token: Home Assistant answers per that user's permissions, so sharing an
+    # entry between callers would disclose one user's data to another. A no-op
+    # for single-token deployments, where cache_scope() returns None.
+    from app.auth import cache_scope  # noqa: PLC0415 - lazy: avoids an import cycle
+
+    scope = cache_scope()
+    if scope is not None:
+        normalized_params = {**normalized_params, "__scope": scope}
+
     cache_key = CacheKeyBuilder.build_key(domain, operation, normalized_params)
 
     # Add prefix if provided
@@ -455,7 +466,7 @@ def _hash_value(value: Any) -> str:
     """
     try:
         json_str = json.dumps(value, sort_keys=True, default=str)
-        return hashlib.md5(json_str.encode(), usedforsecurity=False).hexdigest()  # noqa: B324
+        return hashlib.md5(json_str.encode(), usedforsecurity=False).hexdigest()  # nosec B324 - not used for security
     except Exception:
         # Fallback to string representation
-        return hashlib.md5(str(value).encode(), usedforsecurity=False).hexdigest()  # noqa: B324
+        return hashlib.md5(str(value).encode(), usedforsecurity=False).hexdigest()  # nosec B324 - not used for security

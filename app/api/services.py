@@ -7,9 +7,10 @@ import logging
 from typing import Any, cast
 
 from app.config import HA_URL, get_ha_headers
-from app.core import get_client
+from app.core import get_client, policy
 from app.core.cache.decorator import invalidate_cache
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,17 @@ async def call_service(
         data = {}
 
     client = await get_client()
-    url = f"{HA_URL}/api/services/{domain}/{service}"
+    # Policy choke point for control: entity_action and every other service
+    # invocation flows through here. No-op unless a policy is configured.
+    target = (data or {}).get("entity_id")
+    targets = [target] if isinstance(target, str) else (target or [])
+    for entity_id in targets:
+        if policy.control_denied(entity_id):
+            return policy.denied(entity_id, control=True)
+    if not targets and policy.read_only():
+        return policy.denied(f"{domain}.{service}", control=True)
+
+    url = f"{HA_URL}/api/services/{quote_segment(domain)}/{quote_segment(service)}"
     if return_response:
         url += "?return_response"
 

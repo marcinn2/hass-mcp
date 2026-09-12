@@ -4,12 +4,14 @@ This module provides functions for calculating statistics and analyzing usage pa
 """
 
 import logging
-from datetime import datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from app.api.entities import get_entities, get_entity_history
+from app.api.entities import get_entities, get_entity_history, parse_iso_datetime
 from app.api.logbook import get_entity_logbook
+from app.core import policy
 from app.core.decorators import handle_api_errors
+from app.core.ws import call_ws
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +58,10 @@ async def get_entity_statistics(entity_id: str, period_days: int = 7) -> dict[st
         - Keep period_days reasonable (7-30) for performance
         - Check for empty statistics if entity is not numeric
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_read(entity_id)) is not None:
+        return refusal
+
     # Get history for the period
     history = await get_entity_history(entity_id, hours=period_days * 24)
 
@@ -303,3 +309,109 @@ async def analyze_usage_patterns(entity_id: str, days: int = 30) -> dict[str, An
         "peak_hour": peak_hour,
         "peak_day": peak_day,
     }
+
+
+# Aggregation buckets Home Assistant's recorder supports.
+STATISTICS_PERIODS = ("5minute", "hour", "day", "week", "month")
+
+
+@handle_api_errors
+async def get_entity_statistics_range(
+    entity_id: str,
+    start_time: str | datetime,
+    end_time: str | datetime | None = None,
+    period: str = "hour",
+) -> dict[str, Any]:
+    """
+    Get Home Assistant's long-term statistics for an entity over a date range.
+
+    Ported from the mstump/hass-mcp fork. This queries
+    ``recorder/statistics_during_period`` over the WebSocket API, which is the
+    only way to reach long-term statistics: the REST API has no equivalent.
+
+    Unlike get_entity_statistics, which derives values from raw state history,
+    these statistics are pre-aggregated by Home Assistant and survive the
+    recorder's short-term purge window (10 days by default), so they work for
+    months or years of data.
+
+    The entity must have a ``state_class`` that Home Assistant records as
+    statistics (for example ``measurement`` or ``total_increasing``).
+
+    Args:
+        entity_id: The entity to fetch statistics for
+        start_time: ISO-8601 string or datetime; treated as UTC when naive
+        end_time: ISO-8601 string or datetime; defaults to now (UTC)
+        period: Aggregation bucket - one of "5minute", "hour", "day", "week",
+                "month" (default: "hour")
+
+    Returns:
+        Dictionary with entity_id, period, start_time, end_time and statistics.
+        Each statistics entry carries start/end plus mean/min/max and,
+        depending on the entity, sum/state.
+
+    Raises:
+        ValueError: If period is unknown or start_time is not before end_time
+
+    Examples:
+        await get_entity_statistics_range("sensor.power", "2026-01-01", period="day")
+    """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_read(entity_id)) is not None:
+        return refusal
+
+    if period not in STATISTICS_PERIODS:
+        raise ValueError(f"period must be one of {list(STATISTICS_PERIODS)}, got {period!r}")
+
+    start_dt = parse_iso_datetime(start_time)
+    end_dt = parse_iso_datetime(end_time) if end_time is not None else datetime.now(UTC)
+    if start_dt >= end_dt:
+        raise ValueError("start_time must be before end_time")
+
+    start_iso = start_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+    end_iso = end_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    result = await call_ws(
+        "recorder/statistics_during_period",
+        start_time=start_iso,
+        end_time=end_iso,
+        statistic_ids=[entity_id],
+        period=period,
+    )
+
+    # HA returns {entity_id: [points...]}; flatten when only one was requested.
+    statistics = result.get(entity_id, []) if isinstance(result, dict) else result
+
+    return {
+        "entity_id": entity_id,
+        "period": period,
+        "start_time": start_iso,
+        "end_time": end_iso,
+        "count": len(statistics) if isinstance(statistics, list) else 0,
+        "statistics": statistics,
+    }
+
+
+async def get_long_term_statistics(
+    entity_id: str,
+    hours: int = 24,
+    period: str = "hour",
+) -> dict[str, Any]:
+    """
+    Get long-term statistics for the last N hours.
+
+    Convenience wrapper around get_entity_statistics_range.
+
+    Args:
+        entity_id: The entity to fetch statistics for
+        hours: How far back from now (UTC) to query (default: 24)
+        period: Aggregation bucket (default: "hour")
+
+    Returns:
+        Same shape as get_entity_statistics_range
+
+    Examples:
+        await get_long_term_statistics("sensor.power", hours=720, period="day")
+    """
+    end_dt = datetime.now(UTC)
+    start_dt = end_dt - timedelta(hours=hours)
+    return await get_entity_statistics_range(entity_id, start_dt, end_dt, period)

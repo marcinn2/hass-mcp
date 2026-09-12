@@ -2,29 +2,214 @@
 
 A Model Context Protocol (MCP) server for Home Assistant integration with Claude and other LLMs.
 
-> **Note**: This README is for developers and contributors. For user documentation, see [docs/](docs/) or visit [the documentation site](https://mmornati.github.io/hass-mcp). For AI coding agents, see [AGENTS.md](AGENTS.md).
+> **Note**: This README is for developers and contributors. For user documentation, see [docs/](docs/) or visit [the documentation site](https://marcinn2.github.io/hass-mcp). For AI coding agents, see [AGENTS.md](AGENTS.md).
+
+## Disclaimer
+
+**This is an independent personal project.** I am not affiliated with, endorsed
+by, or sponsored by Home Assistant, Nabu Casa, Anthropic, or the authors of the
+upstream project and the sibling forks this one draws from. "Home Assistant" and
+any other trademarks belong to their respective owners.
+
+I work on this in my free time. There is no service-level commitment behind it:
+issues and pull requests get looked at when I have time, releases happen when
+they happen, and features may change or be removed. It is provided as-is under
+the [MIT License](LICENSE), without warranty of any kind — see the licence text
+for the full terms. Take your own backups before pointing it at a Home Assistant
+instance you care about, and read
+[Privacy & Personal Data](docs/privacy.md) plus the
+[access policy](docs/configuration.md#access-policy) options to understand and
+limit what it can reach.
+
+**Built with AI assistance.** Much of this project — code, tests and
+documentation — was written with the help of AI coding tools, directed and
+reviewed by me. Everything is tested and the quality gates in CI have to pass,
+but AI-assisted code carries its own failure modes, so review anything you
+intend to depend on rather than assuming it is correct because it is committed.
 
 ## About This Fork
 
-This project is a fork of [@voska/hass-mcp](https://github.com/voska/hass-mcp). The original repository was created by Matt Voska and provided the initial MCP server implementation for Home Assistant.
+This project is a fork of
+[@mmornati/hass-mcp](https://github.com/mmornati/hass-mcp), which is itself a
+fork of [@voska/hass-mcp](https://github.com/voska/hass-mcp) — the original
+MCP server implementation for Home Assistant, created by Matt Voska.
 
-### Major Changes from Original
+```
+voska/hass-mcp          original implementation
+  └── mmornati/hass-mcp     modular rewrite, caching, VectorDB, docs, CI
+        └── marcinn2/hass-mcp   this fork
+```
 
-This fork includes significant improvements:
+### Inherited from the Parent Fork
 
-- **Modular Architecture**: Complete refactoring from monolithic files into a modular architecture with clear separation of concerns
-- **Comprehensive Testing**: Unit and integration tests with >80% coverage
-- **Enhanced Toolset**: 15 unified tools + specialized tools (consolidated from 92 original tools) across 20+ categories including entities, automations, devices, areas, scenes, scripts, integrations, helpers, calendars, notifications, webhooks, backups, blueprints, zones, tags, diagnostics, statistics, and more
-- **CI/CD Pipeline**: Automated testing, validation, and deployment
-- **Developer Tooling**: Pre-commit hooks, linting, type checking, and security scanning
-- **Documentation**: Comprehensive documentation site built with MkDocs
-- **Additional Features**: VectorDB for semantic entity search, blueprints, calendars, helpers, tags, webhooks, backups, cache backends (memory, Redis, file), and more
+The bulk of what distinguishes this project from the original upstream comes
+from [@mmornati/hass-mcp](https://github.com/mmornati/hass-mcp), not from this
+fork:
 
-### Original Repository
+- **Modular architecture** — the three-layer split into `app/core/`, `app/api/`
+  and `app/tools/`, replacing the original two-module layout
+- **Unified tools** — 15 type-dispatched tools consolidating 92 originals
+- **Caching subsystem** — memory, Redis and file backends, per-endpoint TTLs,
+  pattern invalidation and metrics
+- **VectorDB semantic search** — Chroma/Qdrant/Weaviate/Pinecone backends,
+  multiple embedding providers, indexing, relationships and classification
+- **The wider toolset** — blueprints, calendars, helpers, tags, webhooks,
+  backups, zones, floors, labels, statistics and diagnostics
+- **Documentation site**, CI/CD pipeline and developer tooling
+- **Test suite** with an enforced coverage floor
+
+### Added in This Fork
+
+Work done here, on top of the parent fork:
+
+- **Structured configuration** — one JSON document for the whole server,
+  layered as defaults → file → environment
+- **MCP bearer authentication** — mandatory on the HTTP transports, with an
+  optional mode where each client supplies its own Home Assistant token
+- **Configurable tool surface** — a declarative registry with per-tool
+  enable/disable; 35 of 114 tools exposed by default
+- **Access policy** — optional read-only mode, entity allowlist and control
+  denylist
+- **URL hardening** — identifiers are percent-encoded before entering request
+  paths, so a crafted entity ID cannot redirect a call to another endpoint
+- **Privacy documentation** — what personal data is processed, where it goes,
+  what is retained, and how to restrict it
+- **Features ported from sibling forks** (see below), and a round of
+  correctness and security fixes to the inherited code
+
+### Ported from Other Forks
+
+Some features were reimplemented here from sibling forks of the same upstream.
+
+From [@mstump/hass-mcp](https://github.com/mstump/hass-mcp):
+
+- **Per-request bearer token** ([`app/auth.py`](app/auth.py)): the `ContextVar` +
+  ASGI middleware approach to taking the Home Assistant token from an incoming
+  request. Extended here into mandatory MCP bearer authentication for the HTTP
+  transports.
+- **WebSocket long-term statistics** ([`app/core/ws.py`](app/core/ws.py),
+  `get_entity_statistics_range`): Home Assistant's
+  `recorder/statistics_during_period` has no REST equivalent, and it is the only
+  way to read statistics that outlive the recorder's short-term purge window.
+- **Date-range history** (`get_entity_history_range`): an explicit start/end
+  window rather than only "N hours back from now".
+
+Two tools come from [@FriendlyVoid/hass-mcp](https://github.com/FriendlyVoid/hass-mcp),
+another sibling fork. Both are **disabled by default** — add them to
+`tools.enabled` to expose them:
+
+- **`call_api`** ([`app/api/raw.py`](app/api/raw.py)): a generic Home Assistant
+  REST passthrough, for endpoints no dedicated tool covers. Off by default
+  because it forwards arbitrary requests with the server's credentials,
+  bypassing every typed tool's contract, and neither reads nor invalidates the
+  cache. This port adds method validation and restricts paths to `/api/`.
+- **`reload_automations_tool`**: reload automations after editing YAML outside
+  Home Assistant. The underlying API function already existed here but had no
+  tool wrapper, so it was unreachable.
+
+Three read-only diagnostic tools come from
+[@nnion/hass-mcp](https://github.com/nnion/hass-mcp) (author: Nils Nilsson),
+which adapted them in turn from
+[homeassistant-ai/ha-mcp](https://github.com/homeassistant-ai/ha-mcp). Also
+**disabled by default**:
+
+- **`get_automation_traces_tool`** ([`app/api/traces.py`](app/api/traces.py)):
+  what an automation or script actually did on a given run — trigger, condition
+  results, per-action outcomes and variables — via Home Assistant's
+  `trace/list` and `trace/get` WebSocket commands. Substantially richer than
+  the existing logbook-based `get_automation_execution_log_tool`, which only
+  reports *that* a run happened.
+- **`get_available_updates_tool`** ([`app/api/updates.py`](app/api/updates.py)):
+  components with a pending update, read from the `update.*` entity domain.
+- **`get_hacs_info_tool`**: HACS repositories, via HACS's own WebSocket API.
+  Requires HACS to be installed.
+
+Their fourth tool, `get_integration_entries`, was not taken: it duplicates this
+fork's existing `get_integrations` (same endpoint, same domain filter), already
+reachable through `list_items(item_type="integration")`.
+
+An access policy layer comes from
+[@paultanger/ha-mcp-server](https://github.com/paultanger/ha-mcp-server)
+(author: Paul Tanger) — read-only mode, an entity allowlist and a control
+denylist, all glob-capable. **The mechanism is implemented in full; its
+restrictions are not enabled.** That fork is read-only out of the box with a
+fail-closed allowlist (empty denies everything), which is a sound posture for
+the deployment it was written for but would silently break every existing user
+of this project on upgrade. So the posture is inverted:
+
+| Control | Here (default) | That fork's default |
+|---|---|---|
+| Writes | allowed | denied (read-only) |
+| Empty entity allowlist | allows everything | denies everything |
+| Empty control denylist | denies nothing | denies nothing |
+
+Their proposed configuration is written out as a comment in
+[`config/hass-mcp.example.json`](config/hass-mcp.example.json) so it can be
+adopted deliberately. Their capability flags (`HASS_MCP_ENABLE_CONTROL` and
+friends) were not ported: the `tools` section already does that job per-tool
+rather than per-group.
+
+One fix comes from
+[@stosgale/hass-mcp](https://github.com/stosgale/hass-mcp) (author: Chris
+Stos-Gale): `websockets.connect()` is called with `max_size=None`
+([`app/core/ws.py`](app/core/ws.py)). The library caps a single message at 1 MiB
+by default, which Home Assistant routinely exceeds — long-term statistics over
+months, a detailed automation trace, or the full HACS repository list each
+arrive as one large message — and the connection would otherwise close with
+code 1009 instead of returning data. All three of this fork's WebSocket-backed
+tools were affected.
+
+These were **ported, not merged**. The two forks diverged structurally — that one
+kept the original monolithic `app/hass.py`, while this one refactored into
+`app/api/`, `app/core/` and `app/tools/` — so a Git merge would have reintroduced
+code this fork deliberately removed. Each feature was rewritten to fit the
+modular layout, with local adaptations: WebSocket TLS follows this project's
+explicit `HA_SSL_VERIFY` setting rather than the OS trust store, and long-term
+statistics were added alongside the existing history-derived statistics instead
+of replacing them.
+
+### Upstream Repositories
 
 - **Source**: [@voska/hass-mcp](https://github.com/voska/hass-mcp)
 - **Author**: Matt Voska
 - **License**: MIT License
+- **Relationship**: the original implementation this lineage descends from
+
+- **Source**: [@mmornati/hass-mcp](https://github.com/mmornati/hass-mcp)
+- **License**: MIT License
+- **Relationship**: the fork this one is based on — see
+  [Inherited from the Parent Fork](#inherited-from-the-parent-fork) for what
+  comes from it
+
+### Other Sources
+
+- **Source**: [@mstump/hass-mcp](https://github.com/mstump/hass-mcp)
+- **License**: MIT License
+- **Used for**: per-request bearer token, WebSocket long-term statistics, date-range history
+
+- **Source**: [@FriendlyVoid/hass-mcp](https://github.com/FriendlyVoid/hass-mcp)
+- **License**: MIT License
+- **Used for**: the `call_api` REST passthrough and the `reload_automations` tool
+  (both disabled by default)
+
+- **Source**: [@paultanger/ha-mcp-server](https://github.com/paultanger/ha-mcp-server)
+- **Author**: Paul Tanger
+- **License**: MIT License
+- **Used for**: the access policy layer — read-only mode, entity allowlist and
+  control denylist (implemented, but permissive by default)
+
+- **Source**: [@stosgale/hass-mcp](https://github.com/stosgale/hass-mcp)
+- **Author**: Chris Stos-Gale
+- **License**: MIT License
+- **Used for**: the WebSocket `max_size` fix that prevents code 1009 disconnects
+  on large Home Assistant messages
+
+- **Source**: [@nnion/hass-mcp](https://github.com/nnion/hass-mcp)
+- **Author**: Nils Nilsson
+- **License**: MIT License
+- **Used for**: automation traces, available updates and HACS info (all disabled
+  by default), themselves adapted from
+  [homeassistant-ai/ha-mcp](https://github.com/homeassistant-ai/ha-mcp)
 
 ## Project Overview
 
@@ -34,13 +219,66 @@ Hass-MCP provides a Model Context Protocol server that enables AI assistants to 
 2. **API Layer** (`app/api/`): Business logic for interacting with Home Assistant (entities, automations, system, etc.)
 3. **Tools Layer** (`app/tools/`): Thin MCP tool wrappers that register with the MCP server
 
+## Configuration
+
+Settings are layered — the configuration file is the baseline, and environment
+variables override it:
+
+```
+built-in defaults  ->  configuration file  ->  environment variables
+```
+
+A single JSON document configures the whole server. Copy the annotated example
+and edit it:
+
+```bash
+cp config/hass-mcp.example.json config/hass-mcp.json
+```
+
+```json
+{
+  "home_assistant": {
+    "url": "http://homeassistant.local:8123",
+    "token": "YOUR_LONG_LIVED_ACCESS_TOKEN",
+    "ssl_verify": true
+  },
+  "server": { "transport": "stdio", "host": "127.0.0.1", "port": 8000 },
+  "auth": { "tokens": ["client-token"], "allow_ha_tokens": false },
+  "tools": { "enabled": [], "disabled": [] },
+  "cache": { "enabled": true, "backend": "memory", "default_ttl": 300 },
+  "vector_db": { "enabled": false, "backend": "chroma" }
+}
+```
+
+> **HTTP transports require bearer authentication.** Every request must send
+> `Authorization: Bearer <token>`, and the server refuses to start without
+> `auth.tokens` (`MCP_AUTH_TOKENS`) or `auth.allow_ha_tokens`
+> (`MCP_ALLOW_HA_TOKENS`). With `allow_ha_tokens` enabled, a token that matches
+> none of the configured ones is used as that request's Home Assistant token, so
+> each client can bring its own credential. `stdio` is unaffected. See
+> [docs/configuration.md](docs/configuration.md#mcp-bearer-authentication).
+
+The file is located from `HASS_MCP_CONFIG_FILE`, or found at `./hass-mcp.json`,
+`./config/hass-mcp.json`, `$HASS_MCP_CONFIG_DIR/hass-mcp.json`,
+`~/.hass-mcp/hass-mcp.json` or `/etc/hass-mcp/hass-mcp.json`. Every section and
+key is optional. Keys beginning
+with `$` are ignored, so `$comment` can be used for notes. Keep secrets in the
+environment (`HA_TOKEN`) rather than in a committed file.
+
+See [config/hass-mcp.example.json](config/hass-mcp.example.json) for every available setting
+and the environment variable that overrides it, and
+[docs/configuration.md](docs/configuration.md) for the full reference, and
+[config/hass-mcp.example.env](config/hass-mcp.example.env) if you would
+rather configure everything through the environment.
+
 ## Caching System
 
 Hass-MCP includes a comprehensive caching system to reduce API calls to Home Assistant and improve response times. The cache is designed to be transparent and automatically handles caching, expiration, and invalidation.
 
 ### Configuration
 
-Caching can be configured via environment variables:
+Caching is configured in the `cache` section of the configuration file, or via
+environment variables (which override the file):
 
 ```bash
 # Enable/disable caching (default: true)
@@ -404,7 +642,7 @@ This will bypass all cache operations without affecting functionality.
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/mmornati/hass-mcp.git
+   git clone https://github.com/marcinn2/hass-mcp.git
    cd hass-mcp
    ```
 
@@ -547,7 +785,7 @@ HA_URL=http://localhost:8123 HA_TOKEN=your_token \
 npx @modelcontextprotocol/inspector docker run -i --rm \
   -e HA_URL=http://homeassistant.local:8123 \
   -e HA_TOKEN=your_token \
-  mmornati/hass-mcp:latest
+  ghcr.io/marcinn2/hass-mcp:latest
 ```
 
 The Inspector provides:
@@ -627,7 +865,7 @@ hass-mcp/
 2. **Testability**:
    - Unit tests for each API module
    - Integration tests for tool functionality
-   - Comprehensive test coverage (>80%)
+   - Comprehensive test coverage (~75%, enforced floor in CI)
 
 3. **Extensibility**:
    - New features can be added by creating API modules and corresponding tools
@@ -761,7 +999,7 @@ The project uses GitHub Actions for CI/CD validation:
 
 3. **Release Workflow** (`.github/workflows/release.yml`)
    - Runs on: tag push
-   - Builds and publishes Docker image and PyPI package
+   - Builds and publishes container images to ghcr.io/marcinn2/hass-mcp (PyPI publishing is disabled)
 
 4. **Docker Workflow** (`.github/workflows/docker.yml`)
    - Builds Docker image for testing
@@ -826,4 +1064,5 @@ uv run python -m app
 
 ## License
 
-[MIT License](LICENSE)
+[MIT License](LICENSE) — provided as-is, without warranty. See the
+[Disclaimer](#disclaimer) for what this project is and is not.

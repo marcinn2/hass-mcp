@@ -8,16 +8,14 @@ name: Deploy Documentation to GitHub Pages
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      - 'docs/requirements.txt'
       - '.github/workflows/docs-deploy.yml'
-  pull_request:
-    paths:
-      - 'docs/**'
-      - 'mkdocs.yml'
-      - '.github/workflows/docs-deploy.yml'
+  # Pull requests are covered by docs-preview.yml, which builds --strict and
+  # attaches a reviewable copy of the site.
   workflow_dispatch:
 
 permissions:
-  contents: write
+  contents: read
   pages: write
   id-token: write
 
@@ -32,40 +30,35 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0  # Fetch all history for git info
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: '3.x'
 
       - name: Cache dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
-          key: ${{ github.ref }}
+          key: mkdocs-${{ hashFiles('docs/requirements.txt') }}
+          restore-keys: mkdocs-
           path: .cache
 
       - name: Install MkDocs and dependencies
-        run: |
-          pip install mkdocs-material
-          pip install mkdocs-minify-plugin
-          pip install mkdocs-redirects
-          pip install mkdocs-git-revision-date-localized-plugin
+        run: pip install -r docs/requirements.txt
 
       - name: Build documentation
         run: mkdocs build --strict
 
       - name: Upload artifact
-        if: github.event_name != 'pull_request'
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: ./site
 
-  # Deployment job (only on push to main)
+  # Deployment job
   deploy:
-    if: github.event_name != 'pull_request'
     needs: build
     runs-on: ubuntu-latest
     environment:
@@ -74,4 +67,4 @@ jobs:
     steps:
       - name: Deploy to GitHub Pages
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5

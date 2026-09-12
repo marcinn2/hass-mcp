@@ -10,10 +10,11 @@ from typing import Any, cast
 
 from app.api.entities import get_entities
 from app.config import HA_URL, get_ha_headers
-from app.core import get_client
+from app.core import get_client, policy
 from app.core.cache.decorator import cached, invalidate_cache
 from app.core.cache.ttl import TTL_LONG
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -98,7 +99,7 @@ async def get_automation_config(automation_id: str) -> dict[str, Any]:
     """
     client = await get_client()
     response = await client.get(
-        f"{HA_URL}/api/config/automation/config/{automation_id}",
+        f"{HA_URL}/api/config/automation/config/{quote_segment(automation_id)}",
         headers=get_ha_headers(),
     )
     response.raise_for_status()
@@ -136,7 +137,7 @@ async def create_automation(config: dict[str, Any]) -> dict[str, Any]:
 
     client = await get_client()
     response = await client.post(
-        f"{HA_URL}/api/config/automation/config/{automation_id}",
+        f"{HA_URL}/api/config/automation/config/{quote_segment(automation_id)}",
         headers=get_ha_headers(),
         json=config,
     )
@@ -163,7 +164,7 @@ async def update_automation(automation_id: str, config: dict[str, Any]) -> dict[
     """
     client = await get_client()
     response = await client.post(
-        f"{HA_URL}/api/config/automation/config/{automation_id}",
+        f"{HA_URL}/api/config/automation/config/{quote_segment(automation_id)}",
         headers=get_ha_headers(),
         json=config,
     )
@@ -189,7 +190,7 @@ async def delete_automation(automation_id: str) -> dict[str, Any]:
     """
     client = await get_client()
     response = await client.delete(
-        f"{HA_URL}/api/config/automation/config/{automation_id}",
+        f"{HA_URL}/api/config/automation/config/{quote_segment(automation_id)}",
         headers=get_ha_headers(),
     )
     response.raise_for_status()
@@ -211,6 +212,10 @@ async def enable_automation(automation_id: str) -> dict[str, Any]:
         Enabling an automation allows it to trigger automatically.
         The automation must exist and be configured correctly.
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_control(policy.qualify("automation", automation_id))) is not None:
+        return refusal
+
     client = await get_client()
     response = await client.post(
         f"{HA_URL}/api/services/automation/turn_on",
@@ -236,6 +241,10 @@ async def disable_automation(automation_id: str) -> dict[str, Any]:
         Disabling prevents the automation from triggering automatically.
         The automation configuration is preserved and can be re-enabled later.
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_control(policy.qualify("automation", automation_id))) is not None:
+        return refusal
+
     client = await get_client()
     response = await client.post(
         f"{HA_URL}/api/services/automation/turn_off",
@@ -262,6 +271,10 @@ async def trigger_automation(automation_id: str) -> dict[str, Any]:
         Useful for testing automations without waiting for triggers.
         The automation does not need to be enabled to be triggered manually.
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_control(policy.qualify("automation", automation_id))) is not None:
+        return refusal
+
     client = await get_client()
     response = await client.post(
         f"{HA_URL}/api/services/automation/trigger",
@@ -313,6 +326,10 @@ async def get_automation_execution_log(automation_id: str, hours: int = 24) -> d
         - Use to debug why an automation isn't firing
         - Check execution frequency to optimize automation triggers
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_read(policy.qualify("automation", automation_id))) is not None:
+        return refusal
+
     end_time = datetime.now(UTC)
     start_time = end_time - timedelta(hours=hours)
     start_time_iso = start_time.strftime("%Y-%m-%dT%H:%M:%S")

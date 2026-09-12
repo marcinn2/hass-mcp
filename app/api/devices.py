@@ -12,6 +12,7 @@ from app.core import get_client
 from app.core.cache.decorator import cached
 from app.core.cache.ttl import TTL_LONG, TTL_MEDIUM
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,7 @@ async def get_device_details(device_id: str) -> dict[str, Any]:
     """
     client = await get_client()
     response = await client.get(
-        f"{HA_URL}/api/config/devices/{device_id}",
+        f"{HA_URL}/api/config/devices/{quote_segment(device_id)}",
         headers=get_ha_headers(),
     )
     response.raise_for_status()

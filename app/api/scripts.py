@@ -8,10 +8,11 @@ from typing import Any, cast
 
 from app.api.entities import get_entities, get_entity_state
 from app.config import HA_URL, get_ha_headers
-from app.core import get_client
+from app.core import get_client, policy
 from app.core.cache.decorator import cached
 from app.core.cache.ttl import TTL_LONG
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -105,13 +106,17 @@ async def get_script_config(script_id: str) -> dict[str, Any]:
         only through entity state depending on Home Assistant version.
         This function tries the config API first, then falls back to entity state.
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_read(policy.qualify("script", script_id))) is not None:
+        return refusal
+
     entity_id = f"script.{script_id}"
 
     # Try to get config via config API if available
     try:
         client = await get_client()
         response = await client.get(
-            f"{HA_URL}/api/config/scripts/{script_id}",
+            f"{HA_URL}/api/config/scripts/{quote_segment(script_id)}",
             headers=get_ha_headers(),
         )
         if response.status_code == 200:
@@ -151,6 +156,10 @@ async def run_script(script_id: str, variables: dict[str, Any] | None = None) ->
         Scripts execute asynchronously. The response indicates the script was started,
         not necessarily that it completed.
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_control(policy.qualify("script", script_id))) is not None:
+        return refusal
+
     data: dict[str, Any] = {}
     if variables:
         data["variables"] = variables
@@ -158,7 +167,7 @@ async def run_script(script_id: str, variables: dict[str, Any] | None = None) ->
     # Call script service directly via httpx
     client = await get_client()
     response = await client.post(
-        f"{HA_URL}/api/services/script/{script_id}",
+        f"{HA_URL}/api/services/script/{quote_segment(script_id)}",
         headers=get_ha_headers(),
         json=data,
     )

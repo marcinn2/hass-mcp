@@ -23,6 +23,7 @@ from app.config import (
     CACHE_MAX_SIZE,
     REDIS_URL,
 )
+from app.config_file import get_section
 
 logger = logging.getLogger(__name__)
 
@@ -31,10 +32,13 @@ class CacheConfig:
     """
     Cache configuration manager.
 
-    This class manages cache configuration from multiple sources:
-    1. Environment variables (highest priority)
-    2. Configuration file (JSON or YAML)
-    3. Default values (lowest priority)
+    This class manages cache configuration from multiple sources, in order of
+    increasing priority:
+    1. Default values
+    2. The "cache" section of the unified configuration file (hass-mcp.json)
+    3. A dedicated cache configuration file (HASS_MCP_CACHE_CONFIG_FILE or
+       ~/.hass-mcp/cache_config.json, kept for backwards compatibility)
+    4. Environment variables
 
     It also supports per-endpoint TTL configuration and runtime updates.
     """
@@ -47,8 +51,10 @@ class CacheConfig:
         self._load_configuration()
 
     def _load_configuration(self) -> None:
-        """Load configuration from environment variables and config file."""
-        # Start with defaults
+        """Load configuration from the config file(s) and environment variables."""
+        # Start with defaults. The scalar settings already carry the unified
+        # config file's "cache" section merged with the environment, because
+        # app.config resolves them through that layering.
         self._config_data = {
             "enabled": CACHE_ENABLED,
             "backend": CACHE_BACKEND,
@@ -56,7 +62,7 @@ class CacheConfig:
             "max_size": CACHE_MAX_SIZE,
             "redis_url": REDIS_URL,
             "cache_dir": CACHE_DIR,
-            "endpoints": {},
+            "endpoints": get_section("cache").get("endpoints", {}),
         }
 
         # Load from config file if it exists
@@ -160,14 +166,40 @@ class CacheConfig:
             self._config_data["cache_dir"] = os.environ.get("HASS_MCP_CACHE_DIR", ".cache")
 
     def _build_endpoint_ttls(self) -> None:
-        """Build endpoint TTL mapping from configuration."""
+        """
+        Build endpoint TTL mapping from configuration.
+
+        Three equivalent spellings are accepted, and may be mixed:
+
+            "automations": 1800                     # domain TTL, shorthand
+            "automations": {"ttl": 1800}            # domain TTL
+            "entities": {"get_state": {"ttl": 60}}  # per-operation TTL
+            "entities.get_state": {"ttl": 60}       # per-operation, dotted
+
+        Nested operations are flattened to the "domain.operation" keys that
+        get_endpoint_ttl() looks up.
+        """
         endpoints = self._config_data.get("endpoints", {})
         for endpoint, config in endpoints.items():
-            if isinstance(config, dict) and "ttl" in config:
-                self._endpoint_ttls[endpoint] = int(config["ttl"])
-            elif isinstance(config, int):
+            if isinstance(config, int):
                 # Simple format: endpoint: ttl
                 self._endpoint_ttls[endpoint] = int(config)
+            elif isinstance(config, dict):
+                if "ttl" in config:
+                    self._endpoint_ttls[endpoint] = int(config["ttl"])
+                # Remaining keys are operations nested under this domain
+                for operation, op_config in config.items():
+                    if operation == "ttl":
+                        continue
+                    if isinstance(op_config, int):
+                        self._endpoint_ttls[f"{endpoint}.{operation}"] = int(op_config)
+                    elif isinstance(op_config, dict) and "ttl" in op_config:
+                        self._endpoint_ttls[f"{endpoint}.{operation}"] = int(op_config["ttl"])
+                    else:
+                        logger.warning(
+                            f"Ignoring cache endpoint config {endpoint}.{operation}: "
+                            "expected an int TTL or a mapping containing 'ttl'"
+                        )
 
     def get_endpoint_ttl(self, domain: str, operation: str | None = None) -> int | None:
         """

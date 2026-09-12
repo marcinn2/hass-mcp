@@ -54,3 +54,26 @@ __pycache__/
 # Documentation builds
 docs/_build/
 docs/.doctrees/
+
+# Local configuration (may contain tokens). The examples under config/ are
+# tracked; a real config copied alongside them is not.
+hass-mcp.json
+.hass-mcp.json
+hass-mcp.yaml
+hass-mcp.yml
+config/hass-mcp.json
+config/.hass-mcp.json
+config/hass-mcp.yaml
+config/hass-mcp.yml
+config/*.env
+!config/hass-mcp.example.env
+cache_config.json
+cache_config.yaml
+vectordb.json
+vectordb.yaml
+
+# Runtime data stores. These hold personal data read from Home Assistant:
+# cached entity states, and persisted entity descriptions/embeddings. Never
+# commit them.
+.cache/
+.vectordb/

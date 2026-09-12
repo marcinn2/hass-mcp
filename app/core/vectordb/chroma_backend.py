@@ -38,9 +38,20 @@ class ChromaBackend(VectorDBBackend):
         try:
             import chromadb  # type: ignore[import-untyped]  # noqa: PLC0415
 
-            # Create persistent client
+            # Create persistent client.
+            #
+            # ChromaDB sends anonymised usage telemetry to a third party by
+            # default. This server indexes Home Assistant entity names and
+            # areas, which are personal data, so no unagreed third-party flow
+            # is acceptable: telemetry is disabled explicitly rather than left
+            # to an environment variable a deployment might forget to set.
             persist_directory = self.config.get_chroma_path()
-            self.client = chromadb.PersistentClient(path=persist_directory)
+            self.client = chromadb.PersistentClient(
+                path=persist_directory,
+                # Settings is re-exported at the package root, so this needs
+                # no second import.
+                settings=chromadb.Settings(anonymized_telemetry=False),
+            )
             self._initialized = True
             logger.info(f"Initialized Chroma backend at {persist_directory}")
         except ImportError as e:

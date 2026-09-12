@@ -16,7 +16,24 @@ __pycache__
 *.egg-info/
 *.egg
 
+# Runtime data stores holding personal data (cached entity states, persisted
+# embeddings). Excluding them keeps a developer's Home Assistant data out of
+# built images.
+.cache
+.vectordb
+
 # Ignore environment and local files
+# Local config may contain a token and must not be baked into the image;
+# mount it at runtime or supply settings via environment variables.
+hass-mcp.json
+.hass-mcp.json
+hass-mcp.yaml
+hass-mcp.yml
+config/hass-mcp.json
+config/.hass-mcp.json
+config/hass-mcp.yaml
+config/hass-mcp.yml
+config/*.env
 .env
 .venv
 venv/

@@ -8,10 +8,11 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 
 from app.config import HA_URL, get_ha_headers
-from app.core import DEFAULT_LEAN_FIELDS, DOMAIN_IMPORTANT_ATTRIBUTES, get_client
+from app.core import DEFAULT_LEAN_FIELDS, DOMAIN_IMPORTANT_ATTRIBUTES, get_client, policy
 from app.core.cache.decorator import cached
 from app.core.cache.ttl import TTL_LONG, TTL_SHORT
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -111,9 +112,15 @@ async def get_entity_state(
     Returns:
         Entity state dictionary, optionally filtered to include only specified fields
     """
+    # Policy choke point for reads. No-op unless an allowlist is configured.
+    if not policy.is_allowed(entity_id):
+        return policy.denied(entity_id)
+
     # Fetch directly
     client = await get_client()
-    response = await client.get(f"{HA_URL}/api/states/{entity_id}", headers=get_ha_headers())
+    response = await client.get(
+        f"{HA_URL}/api/states/{quote_segment(entity_id)}", headers=get_ha_headers()
+    )
     response.raise_for_status()
     entity_data = response.json()
 
@@ -126,7 +133,7 @@ async def get_entity_state(
         lean_fields = DEFAULT_LEAN_FIELDS.copy()
 
         # Add domain-specific important attributes
-        domain = entity_id.split(".")[0]
+        domain = entity_id.split(".", maxsplit=1)[0]
         if domain in DOMAIN_IMPORTANT_ATTRIBUTES:
             for attr in DOMAIN_IMPORTANT_ATTRIBUTES[domain]:
                 lean_fields.append(f"attr.{attr}")
@@ -192,6 +199,11 @@ async def get_entities(
     response = await client.get(f"{HA_URL}/api/states", headers=get_ha_headers())
     response.raise_for_status()
     entities = response.json()
+
+    # Policy choke point for list reads. Applied before any other filtering so
+    # that every downstream path — domain filter, search, lean, field selection —
+    # sees only permitted entities. No-op unless an allowlist is configured.
+    entities = policy.filter_entities(entities)
 
     # Filter by domain if specified
     if domain:
@@ -274,6 +286,10 @@ async def get_entity_history(entity_id: str, hours: int) -> list[dict[str, Any]]
     Returns:
         A list of state change objects, or an error dictionary.
     """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_read(entity_id)) is not None:
+        return [refusal]
+
     client = await get_client()
 
     # Calculate the end time for the history lookup
@@ -300,6 +316,92 @@ async def get_entity_history(entity_id: str, hours: int) -> list[dict[str, Any]]
 
     # Return the JSON response
     return response.json()
+
+
+def parse_iso_datetime(value: str | datetime) -> datetime:
+    """
+    Coerce a caller-supplied datetime to a timezone-aware UTC datetime.
+
+    Ported from the mstump/hass-mcp fork.
+
+    Args:
+        value: A datetime (assumed UTC when naive) or an ISO-8601 string such
+               as "2026-01-15", "2026-01-15T12:00:00", "2026-01-15T12:00:00Z",
+               or one with an explicit offset
+
+    Returns:
+        A timezone-aware datetime
+
+    Raises:
+        ValueError: If the value is neither a datetime nor a parseable string
+
+    Examples:
+        >>> parse_iso_datetime("2026-01-15T12:00:00Z").isoformat()
+        '2026-01-15T12:00:00+00:00'
+    """
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=UTC)
+    if not isinstance(value, str):
+        raise ValueError(f"datetime must be str or datetime, got {type(value).__name__}")
+
+    text = value.strip()
+    # fromisoformat accepts "Z" on 3.11+, but be explicit for clarity.
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    parsed = datetime.fromisoformat(text)
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=UTC)
+
+
+@handle_api_errors
+async def get_entity_history_range(
+    entity_id: str,
+    start_time: str | datetime,
+    end_time: str | datetime | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Get state-change history for an entity within an explicit date/time range.
+
+    Ported from the mstump/hass-mcp fork. Complements get_entity_history, which
+    only looks back a number of hours from now; use this to ask about a
+    specific window ("what did the front door do last Tuesday?").
+
+    Note this reads raw state changes, which Home Assistant's recorder purges
+    after its retention window (10 days by default). For older or aggregated
+    data use get_entity_statistics_range.
+
+    Args:
+        entity_id: The entity to fetch history for
+        start_time: ISO-8601 string or datetime; treated as UTC when naive
+        end_time: ISO-8601 string or datetime; defaults to now (UTC)
+
+    Returns:
+        The list of state-change buckets as Home Assistant returns them
+
+    Raises:
+        ValueError: If start_time is not before end_time
+
+    Examples:
+        await get_entity_history_range("light.kitchen", "2026-01-15", "2026-01-16")
+    """
+    # Policy: refuse when the entity is outside the configured lists.
+    if (refusal := policy.check_read(entity_id)) is not None:
+        return [refusal]
+
+    start_dt = parse_iso_datetime(start_time)
+    end_dt = parse_iso_datetime(end_time) if end_time is not None else datetime.now(UTC)
+    if start_dt >= end_dt:
+        raise ValueError("start_time must be before end_time")
+
+    client = await get_client()
+    url = f"{HA_URL}/api/history/period/{start_dt.strftime('%Y-%m-%dT%H:%M:%SZ')}"
+    params = {
+        "filter_entity_id": entity_id,
+        "minimal_response": "true",
+        "end_time": end_dt.strftime("%Y-%m-%dT%H:%M:%SZ"),
+    }
+    response = await client.get(url, headers=get_ha_headers(), params=params)
+    response.raise_for_status()
+    return cast(list[dict[str, Any]], response.json())
 
 
 @handle_api_errors

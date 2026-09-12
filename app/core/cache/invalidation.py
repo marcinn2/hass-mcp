@@ -112,7 +112,9 @@ class InvalidationStrategy:
         # Specific patterns like "entities:state:id=light.living_room*" should not expand
         # Only general patterns like "entities:*" or "entities:state:*" should expand
         is_specific_pattern = (
-            "id=" in pattern or ":" in pattern.split("*")[0] if "*" in pattern else False
+            "id=" in pattern or ":" in pattern.split("*", maxsplit=1)[0]
+            if "*" in pattern
+            else False
         )
 
         # Check all hierarchies for this pattern

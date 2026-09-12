@@ -27,14 +27,19 @@ Docker is the easiest way to run Hass-MCP and is recommended for most users.
 
 #### Available Docker Images
 
+Images are published to the **GitHub Container Registry** (`ghcr.io`) only —
+there is no Docker Hub or PyPI distribution. Public images need no login; the
+tags below track the default branch, and `vX.Y.Z` tags are published for
+releases.
+
 Hass-MCP provides two Docker images:
 
-1. **Base Image** (`mmornati/hass-mcp:latest` or `mmornati/hass-mcp:latest-vectordb`)
+1. **Base Image** (`ghcr.io/marcinn2/hass-mcp:latest` or `ghcr.io/marcinn2/hass-mcp:latest-vectordb`)
    - **Size**: ~200-300MB (base) or ~2GB (with VectorDB)
    - **VectorDB**: Disabled by default (base) or enabled (vectordb tag)
    - **Use Case**: Base image for minimal deployments or when using external VectorDB server
 
-2. **VectorDB Image** (`mmornati/hass-mcp:latest-vectordb`)
+2. **VectorDB Image** (`ghcr.io/marcinn2/hass-mcp:latest-vectordb`)
    - **Size**: ~2GB
    - **VectorDB**: Enabled by default with CPU-only PyTorch
    - **Use Case**: Full semantic search capabilities with built-in embeddings
@@ -46,10 +51,10 @@ Hass-MCP provides two Docker images:
 1. **Pull the Docker image:**
    ```bash
    # Base image (without VectorDB)
-   docker pull mmornati/hass-mcp:latest
+   docker pull ghcr.io/marcinn2/hass-mcp:latest
 
    # Or VectorDB image (with semantic search)
-   docker pull mmornati/hass-mcp:latest-vectordb
+   docker pull ghcr.io/marcinn2/hass-mcp:latest-vectordb
    ```
 
 2. **Configure Claude Desktop or Cursor:**
@@ -69,7 +74,7 @@ Hass-MCP provides two Docker images:
            "run", "-i", "--rm",
            "-e", "HA_URL",
            "-e", "HA_TOKEN",
-           "mmornati/hass-mcp:latest"
+           "ghcr.io/marcinn2/hass-mcp:latest"
          ],
          "env": {
            "HA_URL": "http://homeassistant.local:8123",
@@ -103,7 +108,7 @@ Hass-MCP provides two Docker images:
            "-e", "HASS_MCP_VECTOR_DB_PATH",
            "-v", "/Users/YOUR_USERNAME/.hass-mcp/cache:/app/.cache",
            "-v", "/Users/YOUR_USERNAME/.hass-mcp/vectordb:/app/.vectordb",
-           "mmornati/hass-mcp:latest-vectordb"
+           "ghcr.io/marcinn2/hass-mcp:latest-vectordb"
          ],
          "env": {
            "HA_URL": "http://homeassistant.local:8123",
@@ -136,7 +141,7 @@ Hass-MCP provides two Docker images:
            "-e", "HASS_MCP_VECTOR_DB_PATH",
            "-v", "C:\\Users\\YOUR_USERNAME\\.hass-mcp\\cache:/app/.cache",
            "-v", "C:\\Users\\YOUR_USERNAME\\.hass-mcp\\vectordb:/app/.vectordb",
-           "mmornati/hass-mcp:latest-vectordb"
+           "ghcr.io/marcinn2/hass-mcp:latest-vectordb"
          ],
          "env": {
            "HA_URL": "http://homeassistant.local:8123",
@@ -169,7 +174,7 @@ Hass-MCP provides two Docker images:
            "-e", "HASS_MCP_VECTOR_DB_PATH",
            "-v", "/home/YOUR_USERNAME/.hass-mcp/cache:/app/.cache",
            "-v", "/home/YOUR_USERNAME/.hass-mcp/vectordb:/app/.vectordb",
-           "mmornati/hass-mcp:latest-vectordb"
+           "ghcr.io/marcinn2/hass-mcp:latest-vectordb"
          ],
          "env": {
            "HA_URL": "http://homeassistant.local:8123",
@@ -209,7 +214,7 @@ Hass-MCP provides two Docker images:
            "-e", "HASS_MCP_EMBEDDING_MODEL",
            "-e", "HASS_MCP_OPENAI_API_KEY",
            "-v", "/Users/YOUR_USERNAME/.hass-mcp/cache:/app/.cache",
-           "mmornati/hass-mcp:latest"
+           "ghcr.io/marcinn2/hass-mcp:latest"
          ],
          "env": {
            "HA_URL": "http://homeassistant.local:8123",
@@ -298,7 +303,7 @@ For users who prefer Python or need more control:
      "mcpServers": {
        "hass-mcp": {
          "command": "uvx",
-         "args": ["-m", "hass-mcp"],
+         "args": ["--from", "git+https://github.com/marcinn2/hass-mcp", "hass-mcp"],
          "env": {
            "HA_URL": "http://homeassistant.local:8123",
            "HA_TOKEN": "YOUR_LONG_LIVED_TOKEN"
@@ -314,7 +319,7 @@ If you're developing or want to run from source:
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/mmornati/hass-mcp.git
+   git clone https://github.com/marcinn2/hass-mcp.git
    cd hass-mcp
    ```
 

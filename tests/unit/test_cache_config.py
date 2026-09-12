@@ -247,3 +247,52 @@ class TestCacheConfig:
                 assert config.get_endpoint_ttl("automations") == 3600
         finally:
             config_path.unlink()
+
+
+class TestNestedEndpointSchema:
+    """The documented nested endpoints schema must produce per-operation TTLs.
+
+    Regression coverage: _build_endpoint_ttls previously required a top-level
+    "ttl" key, so the nested per-operation form shown in the documentation was
+    silently discarded.
+    """
+
+    def _config_from(self, endpoints):
+        import app.core.cache.config as config_module
+
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as f:
+            json.dump({"endpoints": endpoints}, f)
+            config_path = Path(f.name)
+        try:
+            config_module._cache_config = None
+            with patch.dict(os.environ, {"HASS_MCP_CACHE_CONFIG_FILE": str(config_path)}):
+                return CacheConfig()
+        finally:
+            config_path.unlink()
+
+    def test_nested_operations_are_flattened(self):
+        config = self._config_from(
+            {"entities": {"get_state": {"ttl": 60}, "get_entities": {"ttl": 1800}}}
+        )
+        assert config.get_endpoint_ttl("entities", "get_state") == 60
+        assert config.get_endpoint_ttl("entities", "get_entities") == 1800
+
+    def test_domain_ttl_and_nested_operations_coexist(self):
+        config = self._config_from({"entities": {"ttl": 300, "get_state": {"ttl": 60}}})
+        assert config.get_endpoint_ttl("entities") == 300
+        assert config.get_endpoint_ttl("entities", "get_state") == 60
+        # An operation without its own entry falls back to the domain TTL
+        assert config.get_endpoint_ttl("entities", "get_entities") == 300
+
+    def test_integer_shorthand(self):
+        config = self._config_from({"areas": 3600, "entities": {"get_state": 60}})
+        assert config.get_endpoint_ttl("areas") == 3600
+        assert config.get_endpoint_ttl("entities", "get_state") == 60
+
+    def test_dotted_keys_still_work(self):
+        config = self._config_from({"scripts.list": {"ttl": 45}})
+        assert config.get_endpoint_ttl("scripts", "list") == 45
+
+    def test_malformed_operation_is_ignored(self):
+        config = self._config_from({"entities": {"get_state": "not-a-ttl"}})
+        assert config.get_endpoint_ttl("entities", "get_state") is None

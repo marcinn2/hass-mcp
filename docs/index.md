@@ -4,6 +4,29 @@ Welcome to the **Hass-MCP** (Home Assistant Model Context Protocol) server docum
 
 Hass-MCP enables AI assistants like Claude to interact directly with your Home Assistant instance, providing a comprehensive set of tools for managing and controlling your smart home.
 
+!!! info "About this fork"
+    This is [marcinn2/hass-mcp](https://github.com/marcinn2/hass-mcp), a fork of
+    [mmornati/hass-mcp](https://github.com/mmornati/hass-mcp), which is itself a
+    fork of the original [voska/hass-mcp](https://github.com/voska/hass-mcp) by
+    Matt Voska.
+
+    ```
+    voska/hass-mcp          original implementation
+      └── mmornati/hass-mcp     modular rewrite, caching, VectorDB, docs, CI
+            └── marcinn2/hass-mcp   this fork
+    ```
+
+    Most of what distinguishes this project from the original upstream comes
+    from the parent fork. Added here: structured configuration, MCP bearer
+    authentication, a configurable tool surface, the access policy layer, URL
+    hardening, and features ported from several sibling forks. See the
+    [README](https://github.com/marcinn2/hass-mcp#about-this-fork) for the full
+    attribution, and [Privacy & Personal Data](privacy.md) before pointing it at
+    a live instance.
+
+    It is an independent personal project — not affiliated with or endorsed by
+    Home Assistant, Nabu Casa, or the authors of the upstream projects.
+
 ## What is Hass-MCP?
 
 Hass-MCP is a Model Context Protocol (MCP) server that bridges the gap between AI assistants and Home Assistant. It provides **15 unified tools + specialized tools** (consolidated from 92 original tools) organized into **20+ categories** that allow AI assistants to:
@@ -39,7 +62,7 @@ Add Hass-MCP to your Claude Desktop configuration:
         "run", "-i", "--rm",
         "-e", "HA_URL",
         "-e", "HA_TOKEN",
-        "mmornati/hass-mcp:latest"
+        "ghcr.io/marcinn2/hass-mcp:latest"
       ],
       "env": {
         "HA_URL": "http://homeassistant.local:8123",
@@ -56,7 +79,7 @@ Add Hass-MCP to your Claude Desktop configuration:
   "mcpServers": {
     "hass-mcp": {
       "command": "uvx",
-      "args": ["-m", "hass-mcp"],
+      "args": ["--from", "git+https://github.com/marcinn2/hass-mcp", "hass-mcp"],
       "env": {
         "HA_URL": "http://homeassistant.local:8123",
         "HA_TOKEN": "YOUR_LONG_LIVED_TOKEN"
@@ -65,6 +88,11 @@ Add Hass-MCP to your Claude Desktop configuration:
   }
 }
 ```
+
+!!! info "Privacy"
+    Hass-MCP reads your Home Assistant data and passes it to an LLM. See
+    [Privacy & Personal Data](privacy.md) for what it touches, where that goes,
+    and how to restrict it.
 
 ### Verify Connection
 
@@ -158,7 +186,7 @@ Claude: [Uses system_overview tool]
 
 ## Getting Help
 
-- **Issues**: [GitHub Issues](https://github.com/mmornati/hass-mcp/issues)
+- **Issues**: [GitHub Issues](https://github.com/marcinn2/hass-mcp/issues)
 - **Documentation**: This site
 - **Home Assistant API**: [Official Documentation](https://www.home-assistant.io/integrations/api/)
 

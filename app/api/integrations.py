@@ -11,6 +11,7 @@ from app.core import get_client
 from app.core.cache.decorator import cached, invalidate_cache
 from app.core.cache.ttl import TTL_MEDIUM
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -91,7 +92,7 @@ async def get_integration_config(entry_id: str) -> dict[str, Any]:
     """
     client = await get_client()
     response = await client.get(
-        f"{HA_URL}/api/config/config_entries/entry/{entry_id}",
+        f"{HA_URL}/api/config/config_entries/entry/{quote_segment(entry_id)}",
         headers=get_ha_headers(),
     )
     response.raise_for_status()

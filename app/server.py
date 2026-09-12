@@ -1,14 +1,28 @@
 import json
 import logging
-import os
+from typing import Any
 
-# Set up logging
+from app.config import LOG_LEVEL, get_config_file_path
+
+# Set up logging. The level is configurable because INFO includes per-request
+# lines naming entity IDs and search queries, which are personal data; see
+# docs/privacy.md.
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, LOG_LEVEL, logging.INFO),
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler()],
+    # Without force, basicConfig is a no-op when the root logger already has a
+    # handler, so LOG_LEVEL would be silently ignored whenever anything
+    # configured logging first. This module is the server entry point, so its
+    # configuration should win.
+    force=True,
 )
 logger = logging.getLogger(__name__)
+
+# app.config loads before logging is configured, so report the file it used now
+# that a handler exists.
+if get_config_file_path():
+    logger.info("Configuration loaded from %s", get_config_file_path())
 
 # Create an MCP server
 from mcp.server.fastmcp import FastMCP
@@ -18,6 +32,7 @@ from app.api.entities import (
     get_entity_state,
 )
 from app.core import async_handler
+from app.tools.registry import ALL_TOOL_NAMES, resolve_enabled
 
 # Get package version for server info
 try:
@@ -25,21 +40,37 @@ try:
 
     __version__ = importlib.metadata.version("hass-mcp")
 except Exception:
-    # Fallback if metadata is not available (e.g., during development)
-    __version__ = "0.1.1"
+    # Fallback if metadata is not available (e.g., during development).
+    # Keep in sync with [project] version in pyproject.toml.
+    __version__ = "1.1.0"
 
-# Initialize FastMCP with server name and version.
-# Newer FastMCP releases accept a ``version`` keyword. Older releases (<=1.21)
-# ignore it, so we fall back to manual assignment to remain compatible.
+# Bind address for the HTTP transports ("sse", "streamable-http"). These must be
+# passed to the constructor: FastMCP.run() accepts only (transport, mount_path),
+# so reading them at run time would have no effect. Values come from the
+# "server" section of the configuration file, overridden by the environment.
+from app.config import (  # noqa: E402
+    MCP_ALLOW_HA_TOKENS,
+    MCP_AUTH_TOKENS,
+    MCP_TRANSPORT,  # noqa: E402
+    TOOLS_DISABLED,
+    TOOLS_ENABLED,
+)
+from app.config import MCP_HOST as _HOST  # noqa: E402
+from app.config import MCP_PORT as _PORT  # noqa: E402
+
+# Initialize FastMCP with server name, version and bind address.
+# FastMCP does not accept a ``version`` keyword in the currently pinned range
+# (mcp>=1.27,<2), so the keyword is attempted first for forward compatibility
+# and we otherwise set it on the underlying low-level server.
 try:
-    # Fast path for FastMCP versions that support passing version directly.
     mcp = FastMCP(
         name="Hass-MCP",
-        version=__version__,
+        version=__version__,  # type: ignore[call-arg]  # accepted by newer FastMCP only
+        host=_HOST,
+        port=_PORT,
     )
 except TypeError:
-    # Backwards compatibility for FastMCP versions that don't accept "version".
-    mcp = FastMCP(name="Hass-MCP")
+    mcp = FastMCP(name="Hass-MCP", host=_HOST, port=_PORT)
     if hasattr(mcp, "_mcp_server"):
         # The underlying low-level server supports ``version`` – set it manually.
         mcp._mcp_server.version = __version__
@@ -55,13 +86,11 @@ from app.tools import (
     devices,
     diagnostics,
     entities,
-    entity_suggestions,
     events,
     helpers,
     integrations,
     logbook,
     notifications,
-    query_processing,
     scenes,
     scripts,
     services,
@@ -75,96 +104,30 @@ from app.tools import (
 )  # noqa: E402
 
 # Register entity tools with MCP instance
-mcp.tool()(async_handler("get_entity")(entities.get_entity))
-mcp.tool()(async_handler("entity_action")(entities.entity_action))
-mcp.tool()(async_handler("search_entities")(unified.search_entities))
-mcp.tool()(async_handler("get_entity_suggestions")(entity_suggestions.get_entity_suggestions_tool))
+# Register tools from the registry, honouring the configured tool surface.
+#
+# The set of exposed tools is configurable (tools.enabled / tools.disabled in
+# the config file, MCP_TOOLS_ENABLED / MCP_TOOLS_DISABLED in the environment).
+# app.tools.registry holds the declarative list of everything available and
+# which entries are on by default.
+_tool_specs, _unknown_tools = resolve_enabled(TOOLS_ENABLED, TOOLS_DISABLED)
 
-# Register query processing tools with MCP instance
-mcp.tool()(
-    async_handler("process_natural_language_query")(query_processing.process_natural_language_query)
-)
-
-# Register unified entity description tool (replaces generate_entity_description and generate_entity_descriptions_batch)
-mcp.tool()(async_handler("generate_entity_description")(unified.generate_entity_description))
-
-# Register unified tools (replaces multiple specialized tools)
-mcp.tool()(async_handler("list_items")(unified.list_items))
-mcp.tool()(async_handler("get_item")(unified.get_item))
-mcp.tool()(async_handler("manage_item")(unified.manage_item))
-
-# Register specialized automation tools (not replaced by unified tools)
-mcp.tool()(
-    async_handler("get_automation_execution_log")(automations.get_automation_execution_log_tool)
-)
-mcp.tool()(async_handler("validate_automation_config")(automations.validate_automation_config_tool))
-
-# Register specialized script tools (run_script not replaced by unified tools)
-mcp.tool()(async_handler("run_script")(scripts.run_script_tool))
-
-# Register unified device/area tools (replaces get_device_entities, get_device_stats, get_area_entities, get_area_summary)
-mcp.tool()(async_handler("get_item_entities")(unified.get_item_entities))
-mcp.tool()(async_handler("get_item_summary")(unified.get_item_summary))
-
-# Scene tools are now handled by unified tools (list_items, get_item, manage_item)
-
-# Register specialized integration tools (reload not replaced by unified tools)
-mcp.tool()(async_handler("reload_integration")(integrations.reload_integration_tool))
-
-# Register unified system tools (replaces get_version, system_overview, system_health, core_config, get_error_log, get_cache_statistics, get_history, domain_summary)
-mcp.tool()(async_handler("get_system_info")(unified.get_system_info))
-mcp.tool()(async_handler("get_system_data")(unified.get_system_data))
-# Keep restart_ha as separate tool (critical action)
-mcp.tool()(async_handler("restart_ha")(system.restart_ha))
-
-# Register service tools with MCP instance
-mcp.tool()(async_handler("call_service")(services.call_service_tool))
-mcp.tool()(async_handler("call_service_simple")(services.call_service_simple_tool))
-mcp.tool()(async_handler("list_services")(services.list_services_tool))
-
-# Register template tools with MCP instance
-mcp.tool()(async_handler("test_template")(templates.test_template_tool))
-
-# Register unified logbook tool (replaces get_logbook, get_entity_logbook, search_logbook)
-mcp.tool()(async_handler("get_logbook")(unified.get_logbook))
-
-# Register unified statistics tool (replaces get_entity_statistics, get_domain_statistics, analyze_usage_patterns)
-mcp.tool()(async_handler("get_statistics")(unified.get_statistics))
-
-# Register unified diagnostics tool (replaces diagnose_entity, check_entity_dependencies, analyze_automation_conflicts, get_integration_errors)
-mcp.tool()(async_handler("diagnose")(unified.diagnose))
-
-# Register specialized blueprint tools (not replaced by unified tools)
-mcp.tool()(async_handler("import_blueprint")(blueprints.import_blueprint_tool))
-mcp.tool()(
-    async_handler("create_automation_from_blueprint")(
-        blueprints.create_automation_from_blueprint_tool
+if _unknown_tools:
+    logger.warning(
+        "Ignoring unknown tool name(s) in configuration: %s. "
+        "See app/tools/registry.py for the available tools.",
+        ", ".join(sorted(set(_unknown_tools))),
     )
+
+for _spec in _tool_specs:
+    mcp.tool()(async_handler(_spec.label)(_spec.load()))
+
+logger.info(
+    "Exposing %d of %d available tools%s",
+    len(_tool_specs),
+    len(ALL_TOOL_NAMES),
+    "" if not TOOLS_ENABLED and not TOOLS_DISABLED else " (configured)",
 )
-
-# Zone tools are now handled by unified tools (list_items, get_item, manage_item)
-
-# Register unified events tool (replaces fire_event, list_event_types, get_events)
-mcp.tool()(async_handler("manage_events")(unified.manage_events))
-
-# Register unified notifications tool (replaces list_notification_services, send_notification, test_notification)
-mcp.tool()(async_handler("manage_notifications")(unified.manage_notifications))
-
-# Register specialized calendar tools (not replaced by unified tools)
-mcp.tool()(async_handler("get_calendar_events")(calendars.get_calendar_events_tool))
-mcp.tool()(async_handler("create_calendar_event")(calendars.create_calendar_event_tool))
-
-# Register specialized helper tools (update_helper not replaced by unified tools)
-mcp.tool()(async_handler("update_helper")(helpers.update_helper_tool))
-
-# Register specialized tag tools (not replaced by unified tools)
-mcp.tool()(async_handler("get_tag_automations")(tags.get_tag_automations_tool))
-
-# Register unified webhooks tool (replaces list_webhooks, test_webhook)
-mcp.tool()(async_handler("manage_webhooks")(unified.manage_webhooks))
-
-# Register specialized backup tools (restore not replaced by unified tools)
-mcp.tool()(async_handler("restore_backup")(backups.restore_backup_tool))
 
 # Re-export all tools for backward compatibility
 # This allows tests and other code to import them from app.server
@@ -314,7 +277,7 @@ async def get_entity_resource(entity_id: str) -> str:
     result += f"**State**: {state.get('state')}\n\n"
 
     # Add domain info
-    domain = entity_id.split(".")[0]
+    domain = entity_id.split(".", maxsplit=1)[0]
     result += f"**Domain**: {domain}\n\n"
 
     # Add key attributes based on domain type
@@ -449,7 +412,7 @@ async def get_all_entities_resource() -> str:
     result += "- Entity search: `hass://search/{query}`\n\n"
 
     # Group entities by domain for better organization
-    domains = {}
+    domains: dict[str, list[dict[str, Any]]] = {}
     for entity in entities:
         domain = entity["entity_id"].split(".")[0]
         if domain not in domains:
@@ -536,7 +499,7 @@ async def search_entities_resource_with_limit(query: str, limit: str) -> str:
     result += f"Found {len(entities)} matching entities:\n\n"
 
     # Group entities by domain for better organization
-    domains = {}
+    domains: dict[str, list[dict[str, Any]]] = {}
     for entity in entities:
         domain = entity["entity_id"].split(".")[0]
         if domain not in domains:
@@ -633,7 +596,7 @@ async def get_entity_resource_detailed(entity_id: str) -> str:
     result += f"**State**: {state.get('state')}\n\n"
 
     # Add domain and entity type information
-    domain = entity_id.split(".")[0]
+    domain = entity_id.split(".", maxsplit=1)[0]
     result += f"**Domain**: {domain}\n\n"
 
     # Add usage guidance
@@ -827,20 +790,57 @@ def run_server() -> None:
                     Used only for "sse" and "streamable-http" transports.
         - MCP_PORT: Port to bind (default: "8000"). Used only for server transports.
         - PORT: Alternative port variable (Smithery compatibility). Overridden by MCP_PORT.
+
+    The HTTP transports require bearer authentication and refuse to start
+    without it:
+        - MCP_AUTH_TOKENS: Comma-separated client tokens that authenticate a caller.
+        - MCP_ALLOW_HA_TOKENS: When true, a bearer token matching none of those is
+                               treated as that request's Home Assistant token.
     """
-    transport = os.environ.get("MCP_TRANSPORT", "stdio")
+    transport = MCP_TRANSPORT
 
     if transport in ("sse", "streamable-http"):
-        host = os.environ.get("MCP_HOST", "127.0.0.1")
-        port = int(os.environ.get("MCP_PORT", os.environ.get("PORT", "8000")))
-
+        # Host and port were applied to mcp.settings at construction time.
         logger.info(
             "Starting server with transport=%s on %s:%s",
             transport,
-            host,
-            port,
+            mcp.settings.host,
+            mcp.settings.port,
         )
-        mcp.run(transport=transport)  # type: ignore[arg-type]
+
+        # Serve the ASGI app ourselves so the auth middleware can be installed:
+        # FastMCP.run() exposes no middleware hook.
+        import uvicorn  # noqa: PLC0415 - only needed for the HTTP transports
+
+        from app.auth import BearerAuthMiddleware, auth_is_configured  # noqa: PLC0415
+
+        # Bearer auth is mandatory on the HTTP transports. Refuse to start
+        # rather than bind a port that rejects every request while looking
+        # outwardly healthy.
+        if not auth_is_configured():
+            raise SystemExit(
+                f"Cannot start the {transport!r} transport: bearer authentication is "
+                "required but not configured.\n"
+                "Set MCP_AUTH_TOKENS (or auth.tokens in the config file) to one or "
+                "more client tokens, and/or enable MCP_ALLOW_HA_TOKENS "
+                "(auth.allow_ha_tokens) to accept Home Assistant tokens directly."
+            )
+
+        logger.info(
+            "Bearer authentication enabled: %d configured MCP token(s), Home Assistant tokens %s",
+            len(MCP_AUTH_TOKENS),
+            "accepted" if MCP_ALLOW_HA_TOKENS else "rejected",
+        )
+
+        app = mcp.streamable_http_app() if transport == "streamable-http" else mcp.sse_app()
+        app.add_middleware(BearerAuthMiddleware)
+
+        uvicorn.run(
+            app,
+            host=mcp.settings.host,
+            port=mcp.settings.port,
+            log_level=mcp.settings.log_level.lower(),
+        )
 
     else:
         logger.info("Starting server with transport=stdio")

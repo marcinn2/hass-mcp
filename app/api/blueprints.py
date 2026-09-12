@@ -14,6 +14,7 @@ from app.api.base import BaseAPI
 from app.core.cache.decorator import cached
 from app.core.cache.ttl import TTL_VERY_LONG
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_path, quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ async def list_blueprints(domain: str | None = None) -> list[dict[str, Any]]:
         - Check blueprint metadata to understand what inputs are required
         - Use get_blueprint() to get full blueprint definition before using
     """
-    url = f"/api/blueprint/domain/{domain}" if domain else "/api/blueprint/list"
+    url = f"/api/blueprint/domain/{quote_segment(domain)}" if domain else "/api/blueprint/list"
     return await _blueprints_api.get(url)
 
 
@@ -107,14 +108,14 @@ async def get_blueprint(blueprint_id: str, domain: str | None = None) -> dict[st
     """
     # Blueprint ID typically includes domain and path
     if domain:
-        url = f"/api/blueprint/metadata/{domain}/{blueprint_id}"
+        url = f"/api/blueprint/metadata/{quote_segment(domain)}/{quote_segment(blueprint_id)}"
     else:
         # Try to extract domain from blueprint_id
         parts = blueprint_id.split("/")
         if len(parts) >= 2:
             domain = parts[0]
             path = "/".join(parts[1:])
-            url = f"/api/blueprint/metadata/{domain}/{path}"
+            url = f"/api/blueprint/metadata/{quote_segment(domain)}/{quote_path(path)}"
         else:
             return {
                 "error": "Cannot determine domain for blueprint. Please provide domain parameter."

@@ -209,7 +209,7 @@ if hasattr(backend, "async_size"):
 version: '3.8'
 services:
   hass-mcp:
-    image: mmornati/hass-mcp:latest
+    image: ghcr.io/marcinn2/hass-mcp:latest
     environment:
       - HA_URL=http://homeassistant.local:8123
       - HA_TOKEN=${HA_TOKEN}
@@ -229,7 +229,7 @@ services:
       - "6379:6379"
 
   hass-mcp:
-    image: mmornati/hass-mcp:latest
+    image: ghcr.io/marcinn2/hass-mcp:latest
     depends_on:
       - redis
     environment:
@@ -247,7 +247,7 @@ services:
 version: '3.8'
 services:
   hass-mcp:
-    image: mmornati/hass-mcp:latest
+    image: ghcr.io/marcinn2/hass-mcp:latest
     volumes:
       - ./cache:/app/.cache
     environment:

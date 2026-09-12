@@ -90,7 +90,7 @@ class FileCacheBackend(CacheBackend):
         # Extract prefix from key (e.g., "entities:state:id=light" -> "entities")
         prefix = "default"
         if ":" in key:
-            prefix = key.split(":")[0]
+            prefix = key.split(":", maxsplit=1)[0]
 
         # Create directory structure: cache_dir/prefix/
         key_hash = self._get_key_hash(key)
@@ -391,7 +391,7 @@ class FileCacheBackend(CacheBackend):
                                 if expires_at is not None and time.time() > expires_at:
                                     # Expired, skip
                                     continue
-                        except Exception as e:  # noqa: B112 - Intentional continue on error
+                        except Exception as e:  # nosec B112 - intentional continue on error
                             # If metadata read fails, skip this file
                             logger.debug(f"Error reading metadata for {file_path}: {e}")
                             continue

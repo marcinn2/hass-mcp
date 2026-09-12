@@ -9,7 +9,8 @@ multiple item types (automations, scripts, scenes, etc.) through parameters.
 """
 
 import logging
-from typing import Any
+from collections.abc import Callable
+from typing import Any, cast
 
 from app.api import (
     areas,
@@ -34,14 +35,26 @@ from app.api import (
     webhooks,
     zones,
 )
-from app.api.entities import get_entities, get_entity_history, get_entity_state, summarize_domain
+from app.api.entities import (
+    get_entities,
+    get_entity_history_range,
+    get_entity_state,
+    summarize_domain,
+)
+from app.core import policy
 from app.core.vectordb.description import (  # noqa: PLC0415
     generate_entity_description_batch,
     generate_entity_description_enhanced,
 )
-from app.core.vectordb.search import semantic_search  # noqa: PLC0415
+from app.tools import system as system_tools
+from app.tools.entities import semantic_search_entities_tool
 
 logger = logging.getLogger(__name__)
+
+# Actions on manage_item that change Home Assistant state.
+WRITE_ACTIONS = frozenset(
+    {"create", "update", "delete", "enable", "disable", "trigger", "activate", "reload"}
+)
 
 # Mapping of item types to their API modules
 ITEM_TYPE_MODULES = {
@@ -62,7 +75,7 @@ ITEM_TYPE_MODULES = {
 }
 
 # Mapping of item types to their list functions
-LIST_FUNCTIONS = {
+LIST_FUNCTIONS: dict[str, Callable[..., Any]] = {
     "automation": automations.get_automations,
     "script": scripts.get_scripts,
     "scene": scenes.get_scenes,
@@ -82,7 +95,7 @@ LIST_FUNCTIONS = {
 # Mapping of item types to their get functions
 # Note: Some item types don't have individual get functions
 # For those, we'll find the item from the list
-GET_FUNCTIONS = {
+GET_FUNCTIONS: dict[str, Callable[..., Any] | None] = {
     "automation": automations.get_automation_config,
     "script": scripts.get_script_config,
     "scene": scenes.get_scene_config,
@@ -148,9 +161,11 @@ async def list_items(
     )
 
     if item_type not in LIST_FUNCTIONS:
-        return {
-            "error": f"Invalid item_type: {item_type}. Valid types: {', '.join(LIST_FUNCTIONS.keys())}"
-        }
+        return [
+            {
+                "error": f"Invalid item_type: {item_type}. Valid types: {', '.join(LIST_FUNCTIONS.keys())}"
+            }
+        ]
 
     try:
         list_func = LIST_FUNCTIONS[item_type]
@@ -188,7 +203,7 @@ async def list_items(
 
     except Exception as e:
         logger.error(f"Error listing {item_type} items: {str(e)}")
-        return {"error": f"Failed to list {item_type} items: {str(e)}"}
+        return [{"error": f"Failed to list {item_type} items: {str(e)}"}]
 
 
 async def get_item(item_type: str, item_id: str) -> dict[str, Any]:
@@ -264,10 +279,14 @@ async def get_item(item_type: str, item_id: str) -> dict[str, Any]:
                         or item.get("area_id") == item_id
                         or item.get("zone_id") == item_id
                     ):
-                        return item
+                        return cast(dict[str, Any], item)
                 return {"error": f"{item_type} item '{item_id}' not found"}
             return {"error": f"Failed to list {item_type} items"}
-        return await get_func(item_id)
+
+        item = await get_func(item_id)
+        if item is None:
+            return {"error": f"{item_type} item '{item_id}' not found"}
+        return cast(dict[str, Any], item)
     except Exception as e:
         logger.error(f"Error getting {item_type} item {item_id}: {str(e)}")
         return {"error": f"Failed to get {item_type} item {item_id}: {str(e)}"}
@@ -320,6 +339,12 @@ async def manage_item(
             "error": f"Invalid item_type: {item_type}. Valid types: {', '.join(ITEM_TYPE_MODULES.keys())}"
         }
 
+    # Policy choke point for configuration writes. Service calls are covered in
+    # app.api.services, but config CRUD posts straight to /api/config/... and so
+    # would otherwise bypass read-only mode. No-op unless a policy is configured.
+    if action in WRITE_ACTIONS and policy.read_only():
+        return policy.denied(f"{item_type}.{item_id or 'new'}", control=True)
+
     module = ITEM_TYPE_MODULES[item_type]
 
     try:
@@ -337,11 +362,19 @@ async def manage_item(
                     config.get("name", ""), config.get("aliases"), config.get("picture")
                 )
             if item_type == "zone":
+                missing = [f for f in ("latitude", "longitude", "radius") if config.get(f) is None]
+                if missing:
+                    return {
+                        "error": (
+                            f"Missing required zone field(s): {', '.join(missing)}. "
+                            "latitude, longitude and radius are required to create a zone."
+                        )
+                    }
                 return await zones.create_zone(
                     config.get("name", ""),
-                    config.get("latitude"),
-                    config.get("longitude"),
-                    config.get("radius"),
+                    float(config["latitude"]),
+                    float(config["longitude"]),
+                    float(config["radius"]),
                     config.get("icon"),
                     config.get("passive", False),
                 )
@@ -475,11 +508,23 @@ async def search_entities(
         f"Searching entities: query={query}, domain={domain}, mode={search_mode}, limit={limit}"
     )
 
+    if search_mode not in ("keyword", "semantic", "hybrid"):
+        return {
+            "error": (
+                f"Invalid search_mode: {search_mode}. Must be 'keyword', 'semantic', or 'hybrid'"
+            ),
+            "count": 0,
+            "results": [],
+            "domains": {},
+            "search_mode": search_mode,
+        }
+
     try:
-        if search_mode in ["semantic", "hybrid"]:
-            # Use semantic search
+        if search_mode in ("semantic", "hybrid"):
+            # Delegate to the semantic search tool, which maps search_mode onto
+            # the vector backend's hybrid_search flag and formats the results.
             try:
-                result = await semantic_search(
+                return await semantic_search_entities_tool(
                     query=query or "",
                     domain=domain,
                     area_id=area_id,
@@ -487,7 +532,6 @@ async def search_entities(
                     similarity_threshold=similarity_threshold,
                     search_mode=search_mode,
                 )
-                return result
             except Exception as e:
                 logger.warning(f"Semantic search failed: {e}, falling back to keyword search")
                 search_mode = "keyword"
@@ -683,6 +727,9 @@ async def get_statistics(
     domain: str | None = None,
     period_days: int = 7,
     days: int = 30,
+    start_time: str | None = None,
+    end_time: str | None = None,
+    period: str = "hour",
 ) -> dict[str, Any]:
     """
     Unified statistics tool that replaces get_entity_statistics, get_domain_statistics, and analyze_usage_patterns.
@@ -692,10 +739,21 @@ async def get_statistics(
             - "entity": Get statistics for a specific entity (requires entity_id)
             - "domain": Get statistics for a domain (requires domain)
             - "usage_patterns": Analyze usage patterns for an entity (requires entity_id)
-        entity_id: Entity ID (required for "entity" and "usage_patterns" types)
+            - "long_term": Home Assistant's pre-aggregated long-term statistics
+              (requires entity_id). Unlike "entity", which is computed from raw
+              state history and so is limited to the recorder's retention
+              window (10 days by default), this reads statistics that survive
+              indefinitely - use it for months or years of data. The entity
+              needs a state_class that Home Assistant records as statistics.
+        entity_id: Entity ID (required for "entity", "usage_patterns", "long_term")
         domain: Domain name (required for "domain" type)
         period_days: Number of days to analyze (default: 7, used for "entity" and "domain")
         days: Number of days to analyze (default: 30, used for "usage_patterns")
+        start_time: ISO-8601 start for "long_term" (e.g. "2026-01-01" or
+            "2026-01-01T00:00:00Z"). Defaults to period_days before now.
+        end_time: ISO-8601 end for "long_term". Defaults to now.
+        period: Aggregation bucket for "long_term" - "5minute", "hour", "day",
+            "week" or "month" (default: "hour")
 
     Returns:
         Statistics dictionary
@@ -704,6 +762,8 @@ async def get_statistics(
         type="entity", entity_id="sensor.temperature", period_days=7 - Entity statistics
         type="domain", domain="sensor", period_days=7 - Domain statistics
         type="usage_patterns", entity_id="light.living_room", days=30 - Usage patterns
+        type="long_term", entity_id="sensor.power", period="day" - Long-term statistics
+        type="long_term", entity_id="sensor.power", start_time="2025-01-01", period="month"
     """
     logger.info(f"Getting statistics: type={type}, entity_id={entity_id}, domain={domain}")
 
@@ -720,7 +780,21 @@ async def get_statistics(
             if not entity_id:
                 return {"error": "entity_id is required for usage patterns analysis"}
             return await statistics.analyze_usage_patterns(entity_id, days)
-        return {"error": f"Invalid type: {type}. Valid types: entity, domain, usage_patterns"}
+        if type == "long_term":
+            if not entity_id:
+                return {"error": "entity_id is required for long-term statistics"}
+            if start_time:
+                return await statistics.get_entity_statistics_range(
+                    entity_id, start_time, end_time, period
+                )
+            return await statistics.get_long_term_statistics(
+                entity_id, hours=period_days * 24, period=period
+            )
+        return {
+            "error": (
+                f"Invalid type: {type}. Valid types: entity, domain, usage_patterns, long_term"
+            )
+        }
 
     except Exception as e:
         logger.error(f"Error getting statistics: {str(e)}")
@@ -973,6 +1047,9 @@ async def get_system_data(
     integration: str | None = None,
     search_term: str | None = None,
     lines: int | None = None,
+    hours: int = 24,
+    start_time: str | None = None,
+    end_time: str | None = None,
 ) -> dict[str, Any]:
     """
     Unified system data tool that replaces get_error_log, get_cache_statistics, get_history, and domain_summary.
@@ -989,6 +1066,11 @@ async def get_system_data(
         integration: Filter error log by integration name
         search_term: Filter error log by text search
         lines: Limit error log to N most recent lines
+        hours: Hours of history to retrieve (default: 24, for "history")
+        start_time: ISO-8601 start of an explicit history window, e.g.
+            "2026-01-15" or "2026-01-15T00:00:00Z" (for "history"). When
+            given, hours is ignored.
+        end_time: ISO-8601 end of the history window; defaults to now
 
     Returns:
         System data dictionary
@@ -999,7 +1081,10 @@ async def get_system_data(
         data_type="error_log", integration="mqtt" - Filter by integration
         data_type="error_log", level="ERROR", integration="hue", lines=50 - Combined filters
         data_type="cache_statistics" - Get cache statistics
-        data_type="history", entity_id="sensor.temperature" - Get entity history
+        data_type="history", entity_id="sensor.temperature" - Last 24h of history
+        data_type="history", entity_id="sensor.temperature", hours=72 - Last 72h
+        data_type="history", entity_id="sensor.temperature", start_time="2026-01-15",
+            end_time="2026-01-16" - An explicit window
         data_type="domain_summary", domain="light" - Get domain summary
     """
     logger.info(f"Getting system data: type={data_type}, entity_id={entity_id}, domain={domain}")
@@ -1014,8 +1099,21 @@ async def get_system_data(
         if data_type == "history":
             if not entity_id:
                 return {"error": "entity_id is required for history data type"}
-            # get_history uses hours parameter, defaulting to 24
-            return await get_entity_history(entity_id, 24)
+            if start_time:
+                # Explicit window; returns raw HA history buckets
+                buckets = await get_entity_history_range(entity_id, start_time, end_time)
+                if isinstance(buckets, dict) and "error" in buckets:
+                    return buckets
+                states = [state for bucket in buckets for state in bucket]
+                return {
+                    "entity_id": entity_id,
+                    "start_time": start_time,
+                    "end_time": end_time,
+                    "count": len(states),
+                    "states": states,
+                }
+            # get_history flattens the raw API result and adds count/timestamps
+            return await system_tools.get_history(entity_id, hours)
         if data_type == "domain_summary":
             if not domain:
                 return {"error": "domain is required for domain_summary data type"}
@@ -1053,11 +1151,11 @@ async def get_item_entities(item_type: str, item_id: str) -> list[dict[str, Any]
             return await devices.get_device_entities(item_id)
         if item_type == "area":
             return await areas.get_area_entities(item_id)
-        return {"error": f"Invalid item_type: {item_type}. Valid types: device, area"}
+        return [{"error": f"Invalid item_type: {item_type}. Valid types: device, area"}]
 
     except Exception as e:
         logger.error(f"Error getting {item_type} entities: {str(e)}")
-        return {"error": f"Failed to get {item_type} entities: {str(e)}"}
+        return [{"error": f"Failed to get {item_type} entities: {str(e)}"}]
 
 
 async def get_item_summary(item_type: str, item_id: str | None = None) -> dict[str, Any]:

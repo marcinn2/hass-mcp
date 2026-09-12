@@ -20,7 +20,13 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
       - name: Validate version format
         run: |
@@ -33,6 +39,18 @@ jobs:
         run: |
           git config user.name "github-actions"
           git config user.email "github-actions@github.com"
+
+      - name: Set package version from tag
+        run: |
+          # uv build reads the version from pyproject.toml, so it must agree with
+          # the tag; otherwise every release publishes the previous number.
+          VERSION="${{ github.event.inputs.version }}"
+          VERSION="${VERSION#v}"
+          if [ "$(uv version --short)" != "$VERSION" ]; then
+            uv version --no-sync "$VERSION"
+            git commit -am "chore: release $VERSION"
+            git push origin HEAD
+          fi
 
       - name: Create and push Git tag
         run: |
@@ -48,10 +66,9 @@ jobs:
             --generate-notes \
             --draft=false
 
-      - name: Trigger PyPI Publish
+      - name: Release artifacts
         run: |
-          echo "PyPI publish will be triggered by the release event"
-
-      - name: Trigger Docker Build
-        run: |
-          echo "Docker build will be triggered by the tag push"
+          echo "PyPI publishing is disabled; images are the release artifact."
+          echo "Docker Build & Push builds from the pushed tag and publishes to:"
+          echo "  ghcr.io/${{ github.repository }}:${{ github.event.inputs.version }}"
+          echo "  ghcr.io/${{ github.repository }}:${{ github.event.inputs.version }}-vectordb"

@@ -226,28 +226,28 @@ Validation checks:
 
 ```bash
 # Install with basic vector DB support
-uv pip install hass-mcp[vectordb]
+uv pip install "hass-mcp[vectordb] @ git+https://github.com/marcinn2/hass-mcp"
 ```
 
 ### OpenAI Embeddings
 
 ```bash
 # Install with OpenAI embeddings support
-uv pip install hass-mcp[vectordb-openai]
+uv pip install "hass-mcp[vectordb-openai] @ git+https://github.com/marcinn2/hass-mcp"
 ```
 
 ### Cohere Embeddings
 
 ```bash
 # Install with Cohere embeddings support
-uv pip install hass-mcp[vectordb-cohere]
+uv pip install "hass-mcp[vectordb-cohere] @ git+https://github.com/marcinn2/hass-mcp"
 ```
 
 ### All Embeddings
 
 ```bash
 # Install with all embedding model support
-uv pip install hass-mcp[vectordb-all]
+uv pip install "hass-mcp[vectordb-all] @ git+https://github.com/marcinn2/hass-mcp"
 ```
 
 ## Usage

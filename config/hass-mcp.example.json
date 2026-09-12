@@ -1,0 +1,377 @@
+{
+  "$comment": [
+    "Example hass-mcp configuration. Copy to 'hass-mcp.json' and edit.",
+    "",
+    "Layering: built-in defaults -> this file -> environment variables.",
+    "This file is the baseline; any environment variable listed below wins over it.",
+    "",
+    "Search order (first match wins):",
+    "  1. $HASS_MCP_CONFIG_FILE            (explicit path; an invalid path is an error)",
+    "  2. ./hass-mcp.json                  (or .hass-mcp.json, hass-mcp.yaml, hass-mcp.yml)",
+    "  3. $HASS_MCP_CONFIG_DIR/hass-mcp.json",
+    "  4. ~/.hass-mcp/hass-mcp.json",
+    "  5. /etc/hass-mcp/hass-mcp.json",
+    "",
+    "Every section and key is optional; omitted values fall back to the defaults",
+    "shown here. Keys beginning with '$' are ignored, so these notes are safe to keep."
+  ],
+
+  "home_assistant": {
+    "$comment": "Connection to Home Assistant. Env: HA_URL, HA_TOKEN, HA_SSL_VERIFY.",
+    "url": "http://homeassistant.local:8123",
+    "token": "YOUR_LONG_LIVED_ACCESS_TOKEN",
+
+    "$comment_ssl_verify": [
+      "true            - verify using the system CA store (default)",
+      "false           - disable verification (self-signed certificates)",
+      "\"/path/ca.pem\" - verify against a custom CA bundle"
+    ],
+    "ssl_verify": true
+  },
+
+  "server": {
+    "$comment": [
+      "MCP transport. Env: MCP_TRANSPORT, MCP_HOST, MCP_PORT (PORT is also",
+      "accepted as a fallback for Smithery). host and port apply only to the",
+      "'sse' and 'streamable-http' transports."
+    ],
+    "transport": "stdio",
+    "host": "127.0.0.1",
+    "port": 8000,
+
+    "$comment_log_level": [
+      "DEBUG | INFO | WARNING | ERROR. INFO includes per-request lines naming",
+      "entity IDs and search queries, which are personal data; WARNING drops",
+      "those and keeps errors. See docs/privacy.md."
+    ],
+    "log_level": "INFO"
+  },
+
+  "auth": {
+    "$comment": [
+      "MCP bearer authentication. Required whenever server.transport is",
+      "'streamable-http' or 'sse' - the server refuses to start otherwise.",
+      "stdio is unaffected: it has no request layer and nothing is enforced.",
+      "Env: MCP_AUTH_TOKENS (comma-separated), MCP_ALLOW_HA_TOKENS.",
+      "",
+      "How an incoming 'Authorization: Bearer <token>' is handled:",
+      "  1. no bearer header                 -> 401",
+      "  2. token listed in 'tokens'         -> accepted; Home Assistant calls",
+      "                                         use home_assistant.token",
+      "  3. token not listed, and",
+      "     allow_ha_tokens is true          -> accepted; the token is used as",
+      "                                         that request's Home Assistant",
+      "                                         token instead of the configured",
+      "                                         one, so each client can bring",
+      "                                         its own credential",
+      "  4. token not listed, and",
+      "     allow_ha_tokens is false         -> 401",
+      "",
+      "Prefer supplying these via the environment rather than committing them."
+    ],
+    "tokens": ["CHANGE_ME_CLIENT_TOKEN"],
+    "allow_ha_tokens": false
+  },
+
+  "tools": {
+    "$comment": [
+      "Which MCP tools are exposed to clients.",
+      "Env: MCP_TOOLS_ENABLED, MCP_TOOLS_DISABLED (both comma-separated).",
+      "",
+      "'enabled' is an allow-list. Omit it or leave it empty for the default set;",
+      "use the single entry \"all\" to expose everything. 'disabled' is subtracted",
+      "from whatever 'enabled' produced, so you can trim the defaults without",
+      "restating them:",
+      "",
+      "    \"tools\": { \"disabled\": [\"restart_ha\"] }        - defaults minus one",
+      "    \"tools\": { \"enabled\": [\"all\"] }                 - everything",
+      "    \"tools\": { \"enabled\": [\"get_entity\", \"list_items\"] }  - just these two",
+      "",
+      "The list below is the default set, written out explicitly. An unknown name",
+      "is logged as a warning and ignored rather than failing startup."
+    ],
+    "enabled": [
+      "get_automation_execution_log_tool",
+      "validate_automation_config_tool",
+      "restore_backup_tool",
+      "create_automation_from_blueprint_tool",
+      "import_blueprint_tool",
+      "create_calendar_event_tool",
+      "get_calendar_events_tool",
+      "entity_action",
+      "get_entity",
+      "get_entity_suggestions_tool",
+      "update_helper_tool",
+      "reload_integration_tool",
+      "process_natural_language_query",
+      "run_script_tool",
+      "call_service_simple_tool",
+      "call_service_tool",
+      "list_services_tool",
+      "restart_ha",
+      "get_tag_automations_tool",
+      "test_template_tool",
+      "diagnose",
+      "generate_entity_description",
+      "get_item",
+      "get_item_entities",
+      "get_item_summary",
+      "get_logbook",
+      "get_statistics",
+      "get_system_data",
+      "get_system_info",
+      "list_items",
+      "manage_events",
+      "manage_item",
+      "manage_notifications",
+      "manage_webhooks",
+      "search_entities"
+    ],
+    "$comment_disabled": [
+      "Tools available but NOT exposed by default (79 of 114).",
+      "Most are the pre-consolidation originals superseded by the unified tools",
+      "above; they still work, and adding a name to 'enabled' exposes it. Listing",
+      "them here keeps the trade-off visible: every exposed tool costs tokens in",
+      "each client's tool list.",
+      "",
+      "areas (6):",
+      "    create_area_tool, delete_area_tool, get_area_entities_tool, get_area_summary_tool,",
+      "    list_areas_tool, update_area_tool",
+      "automations (9):",
+      "    create_automation_tool, delete_automation_tool, disable_automation_tool,",
+      "    enable_automation_tool, get_automation_config_tool, list_automations,",
+      "    reload_automations_tool, trigger_automation_tool, update_automation_tool",
+      "backups (3):",
+      "    create_backup_tool, delete_backup_tool, list_backups_tool",
+      "blueprints (2):",
+      "    get_blueprint_tool, list_blueprints_tool",
+      "calendars (1):",
+      "    list_calendars_tool",
+      "devices (4):",
+      "    get_device_entities_tool, get_device_stats_tool, get_device_tool, list_devices_tool",
+      "diagnostics (4):",
+      "    analyze_automation_conflicts_tool, check_entity_dependencies_tool,",
+      "    diagnose_entity_tool, get_integration_errors_tool",
+      "diagnostics_extra (3):",
+      "    get_automation_traces_tool, get_available_updates_tool, get_hacs_info_tool",
+      "entities (3):",
+      "    list_entities, search_entities_tool, semantic_search_entities_tool",
+      "entity_descriptions (2):",
+      "    generate_entity_description_tool, generate_entity_descriptions_batch_tool",
+      "events (3):",
+      "    fire_event_tool, get_events_tool, list_event_types_tool",
+      "helpers (2):",
+      "    get_helper_tool, list_helpers_tool",
+      "integrations (2):",
+      "    get_integration_config_tool, list_integrations",
+      "logbook (3):",
+      "    get_entity_logbook_tool, get_logbook_tool, search_logbook_tool",
+      "notifications (3):",
+      "    list_notification_services_tool, send_notification_tool, test_notification_tool",
+      "raw (1):",
+      "    call_api",
+      "scenes (5):",
+      "    activate_scene_tool, create_scene_tool, get_scene_tool, list_scenes_tool,",
+      "    reload_scenes_tool",
+      "scripts (3):",
+      "    get_script_tool, list_scripts_tool, reload_scripts_tool",
+      "statistics (3):",
+      "    analyze_usage_patterns_tool, get_domain_statistics_tool, get_entity_statistics_tool",
+      "system (8):",
+      "    core_config, domain_summary_tool, get_cache_statistics_tool, get_error_log,",
+      "    get_history, get_version, system_health, system_overview",
+      "tags (3):",
+      "    create_tag_tool, delete_tag_tool, list_tags_tool",
+      "webhooks (2):",
+      "    list_webhooks_tool, test_webhook_tool",
+      "zones (4):",
+      "    create_zone_tool, delete_zone_tool, list_zones_tool, update_zone_tool",
+      "",
+      "Replaced by: list_items / get_item / manage_item / get_item_entities /",
+      "get_item_summary / get_system_info / get_system_data / get_logbook /",
+      "get_statistics / diagnose / manage_events / manage_notifications /",
+      "manage_webhooks / search_entities / generate_entity_description.",
+      "",
+      "Ported from the FriendlyVoid/hass-mcp fork, and off by default for their",
+      "own reasons rather than being superseded:",
+      "    call_api                 - generic REST passthrough. Forwards arbitrary",
+      "                               requests with the server's Home Assistant",
+      "                               credentials, bypassing every typed tool's",
+      "                               contract, and neither reads nor invalidates",
+      "                               the cache. Enable deliberately.",
+      "    reload_automations_tool  - reload automations after editing YAML outside",
+      "                               Home Assistant. Not needed for automations",
+      "                               changed through this server.",
+      "",
+      "Ported from the nnion/hass-mcp fork (author: Nils Nilsson), read-only",
+      "diagnostics that answer narrow operational questions:",
+      "    get_automation_traces_tool  - what an automation/script actually did on a",
+      "                                  run: trigger, condition results, per-action",
+      "                                  outcomes. Richer than the logbook-based",
+      "                                  get_automation_execution_log_tool.",
+      "    get_available_updates_tool  - components with a pending update.",
+      "    get_hacs_info_tool          - HACS repositories; needs HACS installed."
+    ],
+    "disabled": []
+  },
+
+  "policy": {
+    "$comment": [
+      "Access policy: read-only mode, entity allowlist and control denylist.",
+      "Env: HASS_MCP_READ_ONLY, HASS_MCP_ENTITY_ALLOWLIST,",
+      "     HASS_MCP_CONTROL_DENYLIST (comma-separated), plus",
+      "     HASS_MCP_ENTITY_ALLOWLIST_FILE / HASS_MCP_CONTROL_DENYLIST_FILE.",
+      "",
+      "Ported from paultanger/ha-mcp-server, but with every control OFF by",
+      "default so that upgrading changes nothing. The values below are this",
+      "project's defaults, i.e. no restrictions at all:",
+      "",
+      "  read_only         false - writes allowed",
+      "  entity_allowlist  []    - EMPTY ALLOWS EVERYTHING (fail-open)",
+      "  control_denylist  []    - empty denies nothing (fail-open)",
+      "",
+      "Both lists take exact entity IDs or fnmatch globs ('sensor.gpu_*',",
+      "'lock.*'). Once entity_allowlist has any entry it becomes",
+      "authoritative and anything unmatched is denied, for reads and writes.",
+      "control_denylist is a permanent floor: a listed entity can be read but",
+      "never controlled, even when it passes the allowlist.",
+      "",
+      "Policy is fixed for the process lifetime \u2014 reads are filtered inside",
+      "cached functions, so changing it means restarting the server."
+    ],
+    "read_only": false,
+    "entity_allowlist": [],
+    "control_denylist": [],
+    "$comment_fork_proposal": [
+      "THE SOURCE FORK'S PROPOSED CONFIGURATION (not applied here).",
+      "",
+      "paultanger/ha-mcp-server ships the opposite posture: read-only out of",
+      "the box, with a FAIL-CLOSED allowlist where an empty list denies",
+      "everything. Its rationale is that an LLM with a Home Assistant token",
+      "should start with no ability to act, and be granted capabilities",
+      "explicitly, entity by entity. Its allowlist is also independent of",
+      "Home Assistant's own Assist exposure list, which is the reason that",
+      "fork exists.",
+      "",
+      "Adopting it here means setting all three, and the allowlist is then",
+      "mandatory \u2014 with read_only off and an empty allowlist you would deny",
+      "every read:",
+      "",
+      "    \"policy\": {",
+      "      \"read_only\": true,",
+      "      \"entity_allowlist\": [",
+      "        \"light.living_room\",",
+      "        \"sensor.gpu_*\",",
+      "        \"binary_sensor.*_offline\"",
+      "      ],",
+      "      \"control_denylist\": [\"lock.*\", \"cover.garage_*\", \"alarm_control_panel.*\"]",
+      "    }",
+      "",
+      "That fork also gates whole tool groups behind capability flags",
+      "(HASS_MCP_ENABLE_CONTROL, HASS_MCP_ENABLE_PROMPTS, ...). That role is",
+      "filled here by the 'tools' section above, which is per-tool rather",
+      "than per-group, so the flags were not ported. The equivalent of their",
+      "control group being off is listing the write tools in tools.disabled:",
+      "",
+      "    \"tools\": { \"disabled\": [\"manage_item\", \"entity_action\",",
+      "                            \"call_service_tool\", \"restart_ha\"] }",
+      "",
+      "For long lists, keep patterns in a file instead \u2014 one per line, '#'",
+      "starts a comment:",
+      "",
+      "    \"entity_allowlist_file\": \"/etc/hass-mcp/allowlist.txt\""
+    ]
+  },
+
+  "cache": {
+    "$comment": [
+      "Response caching. Env: HASS_MCP_CACHE_ENABLED, HASS_MCP_CACHE_BACKEND,",
+      "HASS_MCP_CACHE_DEFAULT_TTL, HASS_MCP_CACHE_MAX_SIZE,",
+      "HASS_MCP_CACHE_REDIS_URL, HASS_MCP_CACHE_DIR."
+    ],
+    "enabled": true,
+
+    "$comment_backend": "One of: memory, redis, file",
+    "backend": "memory",
+
+    "default_ttl": 300,
+    "max_size": 1000,
+
+    "$comment_redis_url": "Used when backend is 'redis'",
+    "redis_url": "redis://localhost:6379/0",
+
+    "$comment_cache_dir": "Used when backend is 'file'",
+    "cache_dir": ".cache",
+
+    "$comment_endpoints": [
+      "Per-endpoint TTL overrides, in seconds. Four equivalent spellings, mixable:",
+      "  \"areas\": 3600                          - domain TTL, shorthand",
+      "  \"automations\": {\"ttl\": 1800}            - domain TTL",
+      "  \"entities\": {\"get_state\": {\"ttl\": 60}}  - per-operation TTL",
+      "  \"scripts.list\": {\"ttl\": 45}             - per-operation, dotted",
+      "A domain TTL applies to operations without their own entry."
+    ],
+    "endpoints": {
+      "entities": {
+        "ttl": 300,
+        "get_state": { "ttl": 60 },
+        "get_entities": { "ttl": 1800 }
+      },
+      "automations": { "ttl": 1800 },
+      "areas": 3600,
+      "devices": 3600
+    }
+  },
+
+  "vector_db": {
+    "$comment": [
+      "Semantic entity search. Disabled by default; requires the 'vectordb' extra",
+      "(uv sync --extra vectordb). Env: HASS_MCP_VECTOR_DB_ENABLED,",
+      "HASS_MCP_VECTOR_DB_BACKEND, HASS_MCP_VECTOR_DB_PATH,",
+      "HASS_MCP_VECTOR_DB_COLLECTION, and HASS_MCP_* per key below."
+    ],
+    "enabled": false,
+
+    "$comment_backend": "One of: chroma, qdrant, weaviate, pinecone",
+    "backend": "chroma",
+
+    "chroma_path": ".vectordb",
+    "collection_name": "entities",
+
+    "embeddings": {
+      "$comment": [
+        "model: sentence-transformers | openai | cohere.",
+        "Env: HASS_MCP_EMBEDDING_MODEL, HASS_MCP_EMBEDDING_MODEL_NAME,",
+        "HASS_MCP_EMBEDDING_DIMENSIONS, HASS_MCP_EMBEDDING_DEVICE."
+      ],
+      "model": "sentence-transformers",
+      "model_name": "all-MiniLM-L6-v2",
+      "dimensions": 384,
+      "device": "cpu"
+    },
+
+    "indexing": {
+      "$comment": "Env: HASS_MCP_INDEXING_BATCH_SIZE, HASS_MCP_INDEXING_AUTO_INDEX, HASS_MCP_INDEXING_UPDATE_ON_CHANGE.",
+      "batch_size": 100,
+      "auto_index": false,
+      "update_on_change": true
+    },
+
+    "search": {
+      "$comment": "Env: HASS_MCP_SEARCH_DEFAULT_LIMIT, HASS_MCP_SEARCH_SIMILARITY_THRESHOLD, HASS_MCP_SEARCH_HYBRID_SEARCH.",
+      "default_limit": 10,
+      "similarity_threshold": 0.7,
+      "hybrid_search": false
+    },
+
+    "$comment_remote_backends": [
+      "Only needed for the matching backend / embedding provider:",
+      "  qdrant_url, qdrant_api_key         (HASS_MCP_QDRANT_URL, HASS_MCP_QDRANT_API_KEY)",
+      "  weaviate_url, weaviate_api_key     (HASS_MCP_WEAVIATE_URL, HASS_MCP_WEAVIATE_API_KEY)",
+      "  pinecone_api_key, pinecone_environment, pinecone_index_name",
+      "  openai_api_key, openai_model       (HASS_MCP_OPENAI_API_KEY, HASS_MCP_OPENAI_MODEL)",
+      "  cohere_api_key, cohere_model       (HASS_MCP_COHERE_API_KEY, HASS_MCP_COHERE_MODEL)",
+      "Prefer environment variables for secrets rather than committing them here."
+    ]
+  }
+}

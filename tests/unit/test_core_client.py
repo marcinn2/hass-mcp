@@ -8,6 +8,21 @@ import pytest
 from app.core.client import cleanup_client, get_client
 
 
+def assert_client_built(mock_client, *, verify):
+    """Assert how the shared client was constructed.
+
+    Checks the timeout and SSL settings under test, plus the policy request
+    hook that enforces read-only mode for every call site.
+    """
+    from app.core.client import _enforce_policy
+
+    mock_client.assert_called_once()
+    kwargs = mock_client.call_args.kwargs
+    assert kwargs["timeout"] == 10.0
+    assert kwargs["verify"] == verify
+    assert kwargs["event_hooks"]["request"] == [_enforce_policy]
+
+
 class TestCoreClient:
     """Test the core client module."""
 
@@ -29,7 +44,7 @@ class TestCoreClient:
             # Verify AsyncClient was called with correct timeout and default SSL verify (True)
             import httpx
 
-            httpx.AsyncClient.assert_called_once_with(timeout=10.0, verify=True)
+            assert_client_built(httpx.AsyncClient, verify=True)
 
     @pytest.mark.asyncio
     async def test_get_client_reuses_existing_client(self):
@@ -107,7 +122,7 @@ class TestCoreClient:
 
             client = await get_client()
 
-            mock_async_client.assert_called_once_with(timeout=10.0, verify=False)
+            assert_client_built(mock_async_client, verify=False)
 
     @pytest.mark.asyncio
     async def test_get_client_with_custom_ca_cert(self, tmp_path):
@@ -141,7 +156,7 @@ class TestCoreClient:
 
             client = await get_client()
 
-            mock_async_client.assert_called_once_with(timeout=10.0, verify=str(ca_file))
+            assert_client_built(mock_async_client, verify=str(ca_file))
 
     @pytest.mark.asyncio
     async def test_get_client_with_invalid_ca_path_falls_back(self):
@@ -172,4 +187,4 @@ class TestCoreClient:
             client = await get_client()
 
             # Should fall back to True (system CAs)
-            mock_async_client.assert_called_once_with(timeout=10.0, verify=True)
+            assert_client_built(mock_async_client, verify=True)

@@ -32,9 +32,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             assert backend._initialized is True
@@ -64,9 +64,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             result = await backend.health_check()
@@ -83,9 +83,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             result = await backend.health_check()
@@ -102,9 +102,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             await backend.create_collection("test_collection", {"test": "metadata"})
@@ -123,9 +123,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             exists = await backend.collection_exists("test_collection")
@@ -143,9 +143,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             await backend.add_vectors(
@@ -173,9 +173,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             results = await backend.search_vectors("test_collection", [0.1, 0.2, 0.3], limit=10)
@@ -194,9 +194,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             await backend.update_vectors(
@@ -219,9 +219,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             await backend.delete_vectors("test_collection", ["id1"])
@@ -244,9 +244,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             stats = await backend.get_collection_stats("test_collection")
@@ -262,9 +262,9 @@ class TestChromaBackend:
 
         with patch(
             "builtins.__import__",
-            side_effect=lambda name, *args, **kwargs: mock_chromadb
-            if name == "chromadb"
-            else __import__(name, *args, **kwargs),
+            side_effect=lambda name, *args, **kwargs: (
+                mock_chromadb if name == "chromadb" else __import__(name, *args, **kwargs)
+            ),
         ):
             await backend.initialize()
             await backend.close()

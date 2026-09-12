@@ -73,7 +73,7 @@ async def entity_action(entity_id: str, action: str, params: dict[str, Any] | No
     service = action if action == "toggle" else f"turn_{action}"
 
     # Extract the domain from the entity_id
-    domain = entity_id.split(".")[0]
+    domain = entity_id.split(".", maxsplit=1)[0]
 
     # Prepare service data
     data = {"entity_id": entity_id, **(params or {})}

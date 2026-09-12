@@ -4,8 +4,8 @@ This guide provides detailed instructions for implementing the project modulariz
 
 ## 📚 Quick Links
 
-- **Epic Overview**: https://github.com/mmornati/hass-mcp/issues/28
-- **Roadmap & Summary**: https://github.com/mmornati/hass-mcp/issues/55
+- **Epic Overview**: https://github.com/marcinn2/hass-mcp/issues/28
+- **Roadmap & Summary**: https://github.com/marcinn2/hass-mcp/issues/55
 - **All Issues**: See project board for current status
 
 ## 🎯 Overall Strategy
@@ -437,7 +437,7 @@ For each issue implementation:
 ### Configuration
 - `pyproject.toml` - Project configuration
 - `README.md` - Project documentation
-- `.env.example` - Environment variables
+- `config/hass-mcp.example.env` - Environment variables
 
 ### Main Application
 - `app/__init__.py` - Package initialization
@@ -511,8 +511,8 @@ For each issue implementation:
 ## 📞 Questions?
 
 Refer to:
-- **Epic**: https://github.com/mmornati/hass-mcp/issues/28
-- **Roadmap**: https://github.com/mmornati/hass-mcp/issues/55
+- **Epic**: https://github.com/marcinn2/hass-mcp/issues/28
+- **Roadmap**: https://github.com/marcinn2/hass-mcp/issues/55
 - **Each Issue**: Contains detailed tasks and acceptance criteria
 
 ---

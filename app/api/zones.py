@@ -11,6 +11,7 @@ from app.api.base import BaseAPI
 from app.core.cache.decorator import cached, invalidate_cache
 from app.core.cache.ttl import TTL_VERY_LONG
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -219,7 +220,9 @@ async def update_zone(
             "error": "At least one field (name, latitude, longitude, radius, icon) must be provided"
         }
 
-    return await _zones_api.post(f"/api/config/zone_registry/{zone_id}", data=payload)
+    return await _zones_api.post(
+        f"/api/config/zone_registry/{quote_segment(zone_id)}", data=payload
+    )
 
 
 @handle_api_errors
@@ -248,5 +251,5 @@ async def delete_zone(zone_id: str) -> dict[str, Any]:
         - Consider updating zone instead of deleting if possible
         - List zones first to ensure correct zone_id
     """
-    await _zones_api.delete(f"/api/config/zone_registry/{zone_id}")
+    await _zones_api.delete(f"/api/config/zone_registry/{quote_segment(zone_id)}")
     return {"status": "deleted", "zone_id": zone_id}

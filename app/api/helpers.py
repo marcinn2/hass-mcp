@@ -196,7 +196,7 @@ async def update_helper(helper_id: str, value: Any) -> dict[str, Any]:
         - Use counters with "+" or "-" for increment/decrement
     """
     # Extract domain from helper_id
-    domain = helper_id.split(".")[0]
+    domain = helper_id.split(".", maxsplit=1)[0]
 
     # Determine service based on domain
     if domain == "input_boolean":

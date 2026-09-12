@@ -1,10 +1,10 @@
 site_name: Hass-MCP Documentation
 site_description: Comprehensive documentation for the Home Assistant Model Context Protocol server
-site_url: https://mmornati.github.io/hass-mcp
+site_url: https://marcinn2.github.io/hass-mcp
 site_author: Hass-MCP Contributors
 
-repo_name: mmornati/hass-mcp
-repo_url: https://github.com/mmornati/hass-mcp
+repo_name: marcinn2/hass-mcp
+repo_url: https://github.com/marcinn2/hass-mcp
 edit_uri: edit/master/docs/
 
 theme:
@@ -57,6 +57,7 @@ nav:
   - Getting Started:
     - Installation: getting-started.md
     - Configuration: configuration.md
+    - Privacy & Personal Data: privacy.md
   - Tools:
     - Entities: entities.md
     - Automations: automations.md

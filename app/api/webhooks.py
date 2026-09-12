@@ -10,6 +10,7 @@ from typing import Any
 from app.config import HA_URL
 from app.core import get_client
 from app.core.decorators import handle_api_errors
+from app.core.urls import quote_segment
 
 logger = logging.getLogger(__name__)
 
@@ -111,7 +112,7 @@ async def test_webhook(  # noqa: PT001
     client = await get_client()
 
     # Webhook URL format: /api/webhook/{webhook_id}
-    webhook_url = f"{HA_URL}/api/webhook/{webhook_id}"
+    webhook_url = f"{HA_URL}/api/webhook/{quote_segment(webhook_id)}"
 
     # Webhooks don't require authentication token
     response = await client.post(webhook_url, json=payload or {})
