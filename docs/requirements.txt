@@ -10,5 +10,5 @@
 # pymdown-extensions (for the pymdownx.* markdown extensions) arrive as
 # dependencies of mkdocs-material.
 
-mkdocs-material>=9.5
 mkdocs-git-revision-date-localized-plugin>=1.2
+mkdocs-material>=9.5

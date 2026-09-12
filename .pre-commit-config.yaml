@@ -21,9 +21,15 @@ repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
     rev: v0.16.7
     hooks:
+      # Scoped to app/ and tests/ to match the Lint job in validate.yml. Ruff
+      # 0.16 also formats Python inside markdown code blocks, which would
+      # rewrite the documentation's samples (collapsing `def f():\n    ...`
+      # onto one line) and diverge from CI.
       - id: ruff
         args: [--fix, --exit-non-zero-on-fix]
+        files: ^(app|tests)/
       - id: ruff-format
+        files: ^(app|tests)/
 
   # MyPy is disabled in pre-commit hooks for now (38 pre-existing errors).
   # Type checking still runs in CI workflows (non-blocking).
