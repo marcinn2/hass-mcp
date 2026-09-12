@@ -91,6 +91,28 @@ MCP_PORT: int = int(
     )
 )
 
+# Session behaviour for the HTTP transports.
+#
+# By default streamable-http is *stateful*: the server issues an Mcp-Session-Id
+# on initialize and keeps that session's state in memory. Sessions therefore
+# pin a client to one process, so MCP_STATELESS_HTTP must be enabled to run
+# more than one replica behind a load balancer.
+MCP_STATELESS_HTTP: bool = resolve(
+    "server", "stateless_http", "MCP_STATELESS_HTTP", False, cast="bool"
+)
+# Return plain JSON instead of text/event-stream. Simpler for basic clients and
+# proxies that mishandle SSE, at the cost of server-initiated streaming.
+MCP_JSON_RESPONSE: bool = resolve(
+    "server", "json_response", "MCP_JSON_RESPONSE", False, cast="bool"
+)
+# Seconds a stateful session may sit idle before it is terminated; its ID then
+# answers 404 and the client must initialize again.
+MCP_SESSION_IDLE_TIMEOUT: float = resolve(
+    "server", "session_idle_timeout", "MCP_SESSION_IDLE_TIMEOUT", 1800.0, cast="float"
+)
+# Ceiling on concurrent stateful sessions — a memory bound.
+MCP_MAX_SESSIONS: int = resolve("server", "max_sessions", "MCP_MAX_SESSIONS", 10000, cast="int")
+
 # MCP bearer authentication (HTTP transports only).
 #
 # Clients must present "Authorization: Bearer <token>". A token matching one of

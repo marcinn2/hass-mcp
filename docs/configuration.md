@@ -60,7 +60,11 @@ ignored and can be used for notes.
     "transport": "stdio",
     "host": "127.0.0.1",
     "port": 8000,
-    "log_level": "INFO"
+    "log_level": "INFO",
+    "stateless_http": false,
+    "json_response": false,
+    "session_idle_timeout": 1800,
+    "max_sessions": 10000
   },
   "auth": {
     "tokens": ["client-token"],
@@ -97,7 +101,7 @@ ignored and can be used for notes.
 | Section | Covers | Overriding variables |
 |---------|--------|----------------------|
 | `home_assistant` | Connection to Home Assistant | `HA_URL`, `HA_TOKEN`, `HA_SSL_VERIFY` |
-| `server` | MCP transport, bind address, log level | `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT` (`PORT`), `LOG_LEVEL` |
+| `server` | MCP transport, bind address, log level, session behaviour | `MCP_TRANSPORT`, `MCP_HOST`, `MCP_PORT` (`PORT`), `LOG_LEVEL`, `MCP_STATELESS_HTTP`, `MCP_JSON_RESPONSE`, `MCP_SESSION_IDLE_TIMEOUT`, `MCP_MAX_SESSIONS` |
 | `auth` | MCP bearer authentication (HTTP transports) | `MCP_AUTH_TOKENS`, `MCP_ALLOW_HA_TOKENS` |
 | `tools` | Which MCP tools are exposed | `MCP_TOOLS_ENABLED`, `MCP_TOOLS_DISABLED` |
 | `policy` | Read-only mode, entity allowlist, control denylist | `HASS_MCP_READ_ONLY`, `HASS_MCP_ENTITY_ALLOWLIST`, `HASS_MCP_CONTROL_DENYLIST` |
@@ -112,6 +116,95 @@ Home Assistant instance.
 Per-endpoint cache TTLs have no environment equivalent, so the `cache.endpoints`
 map is only configurable through the file. See
 [Cache Configuration](caching/configuration.md) for its full schema.
+## Sessions and the HTTP Transports
+
+`stdio` has no request layer, so none of this applies — the process *is* the
+session. The rest concerns `streamable-http` and `sse`.
+
+By default `streamable-http` is **stateful**: the server issues an
+`Mcp-Session-Id` header on `initialize`, the client echoes it on later requests,
+and that session's state lives in memory.
+
+```
+POST /mcp  (initialize)
+  200  Mcp-Session-Id: 45a93e369120421a896d467e7c2bd786
+       Content-Type: text/event-stream
+```
+
+| Setting | Default | Effect |
+|---|---|---|
+| `stateless_http` | `false` | `true` disables sessions entirely — no `Mcp-Session-Id`, each request independent |
+| `json_response` | `false` | `true` returns `application/json` instead of `text/event-stream` |
+| `session_idle_timeout` | `1800` | Seconds a session may idle before it is terminated; its ID then answers `404` and the client must re-initialize |
+| `max_sessions` | `10000` | Ceiling on concurrent sessions — a memory bound |
+
+```json
+{
+  "server": {
+    "transport": "streamable-http",
+    "stateless_http": false,
+    "json_response": false,
+    "session_idle_timeout": 1800,
+    "max_sessions": 10000
+  }
+}
+```
+
+```bash
+export MCP_STATELESS_HTTP=false
+export MCP_JSON_RESPONSE=false
+export MCP_SESSION_IDLE_TIMEOUT=1800
+export MCP_MAX_SESSIONS=10000
+```
+
+The server reports which mode it started in:
+
+```
+Sessions enabled: idle timeout 1800.0s, max 10000 concurrent
+Sessions disabled (stateless_http): each request is independent
+```
+
+### When to change them
+
+**`stateless_http` is the one that matters.** Sessions live in this process's
+memory, so they pin a client to one instance. Running more than one replica
+behind a load balancer requires `stateless_http: true`, or a client's second
+request may land on an instance that has never heard of its session. It also
+suits serverless or scale-to-zero deployments. For a single self-hosted server,
+leave it alone.
+
+Note that scaling out needs more than this setting: the response cache would
+also have to move to the Redis backend, since the memory backend is per-process.
+
+**`json_response`** helps with basic clients or proxies that mishandle
+Server-Sent Events, at the cost of server-initiated streaming.
+
+**`session_idle_timeout`** trades memory against re-handshakes. Lower it to
+reclaim sessions sooner; raise it if clients idle a long time between calls and
+you would rather they not re-initialize.
+
+**`max_sessions`** is worth lowering only if the port is reachable from
+somewhere you do not fully trust, as a cheap ceiling against session
+exhaustion. The default of 10,000 is far beyond what a self-hosted instance
+needs.
+
+### Sessions do not carry credentials
+
+Sessions are long-lived, but bearer authentication is evaluated **per request**.
+With `auth.allow_ha_tokens` enabled, a client must therefore send its Home
+Assistant token on **every** request, not only on `initialize` — the token is
+read from the header and discarded when the request completes.
+
+A client that authenticates only during the handshake will find later calls
+falling back to the server's configured `HA_TOKEN`, or failing outright when
+none is set. This is deliberate: a session is not a standing grant of
+credentials.
+
+### Resumability is not enabled
+
+FastMCP supports an `event_store` for resumable sessions, letting a client
+reconnect and replay missed events. This project does not configure one, so a
+dropped SSE stream means the client must re-initialize rather than resume.
 
 ## Access Policy
 
@@ -338,6 +431,12 @@ Home Assistant credential should be used for a request.
 A configured MCP token is never forwarded to Home Assistant, even in the mixed
 posture.
 
+!!! warning "Send the token on every request"
+    Bearer authentication is evaluated per request, while sessions are
+    long-lived. In pass-through mode a client must therefore present its Home
+    Assistant token on **every** request, not only on `initialize` — see
+    [Sessions do not carry credentials](#sessions-do-not-carry-credentials).
+
 **Shared credential** is the right default. Issue one token per client so they
 can be revoked individually, and rotate by adding the new token, moving clients
 over, then removing the old one.
@@ -442,6 +541,16 @@ Hass-MCP uses the following environment variables:
 - **`MCP_HOST`**: Bind address for the HTTP transports (default: `127.0.0.1`)
 - **`MCP_PORT`**: Bind port for the HTTP transports (default: `8000`)
 - **`PORT`**: Alternative port variable for Smithery compatibility; `MCP_PORT` wins
+
+### Session Variables (HTTP transports)
+
+- **`MCP_STATELESS_HTTP`**: Disable sessions; each request independent (default: `false`)
+  - Required to run more than one replica behind a load balancer
+- **`MCP_JSON_RESPONSE`**: Return JSON instead of SSE streams (default: `false`)
+- **`MCP_SESSION_IDLE_TIMEOUT`**: Seconds before an idle session is terminated (default: `1800`)
+- **`MCP_MAX_SESSIONS`**: Maximum concurrent sessions (default: `10000`)
+
+See [Sessions and the HTTP Transports](#sessions-and-the-http-transports).
 
 ### Access Policy Variables
 

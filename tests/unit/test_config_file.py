@@ -45,6 +45,10 @@ def reload_config(monkeypatch, config_path=None, env=None):
         "MCP_AUTH_TOKENS",
         "MCP_ALLOW_HA_TOKENS",
         "LOG_LEVEL",
+        "MCP_STATELESS_HTTP",
+        "MCP_JSON_RESPONSE",
+        "MCP_SESSION_IDLE_TIMEOUT",
+        "MCP_MAX_SESSIONS",
         "MCP_TOOLS_ENABLED",
         "MCP_TOOLS_DISABLED",
         "HASS_MCP_READ_ONLY",
@@ -582,3 +586,96 @@ class TestLogLevel:
         finally:
             reload_config(monkeypatch)
             importlib.reload(app.server)
+
+
+class TestSessionSettings:
+    """Session behaviour for the HTTP transports, exposed via the server section."""
+
+    def test_defaults_match_fastmcp(self, monkeypatch):
+        """Defaults must mirror FastMCP's, so exposing them changes nothing."""
+        config = reload_config(monkeypatch)
+
+        assert config.MCP_STATELESS_HTTP is False
+        assert config.MCP_JSON_RESPONSE is False
+        assert config.MCP_SESSION_IDLE_TIMEOUT == 1800.0
+        assert config.MCP_MAX_SESSIONS == 10000
+
+    def test_values_from_file(self, monkeypatch, tmp_path):
+        path = write_config(
+            tmp_path,
+            {
+                "server": {
+                    "stateless_http": True,
+                    "json_response": True,
+                    "session_idle_timeout": 600,
+                    "max_sessions": 50,
+                }
+            },
+        )
+        config = reload_config(monkeypatch, path)
+
+        assert config.MCP_STATELESS_HTTP is True
+        assert config.MCP_JSON_RESPONSE is True
+        assert config.MCP_SESSION_IDLE_TIMEOUT == 600.0
+        assert config.MCP_MAX_SESSIONS == 50
+
+    @pytest.mark.parametrize(
+        ("env", "attr", "value", "expected"),
+        [
+            ("MCP_STATELESS_HTTP", "MCP_STATELESS_HTTP", "true", True),
+            ("MCP_JSON_RESPONSE", "MCP_JSON_RESPONSE", "true", True),
+            ("MCP_SESSION_IDLE_TIMEOUT", "MCP_SESSION_IDLE_TIMEOUT", "900", 900.0),
+            ("MCP_MAX_SESSIONS", "MCP_MAX_SESSIONS", "25", 25),
+        ],
+    )
+    def test_env_overrides_file(self, monkeypatch, tmp_path, env, attr, value, expected):
+        path = write_config(
+            tmp_path,
+            {
+                "server": {
+                    "stateless_http": False,
+                    "json_response": False,
+                    "session_idle_timeout": 1800,
+                    "max_sessions": 10000,
+                }
+            },
+        )
+        config = reload_config(monkeypatch, path, {env: value})
+
+        assert getattr(config, attr) == expected
+
+    def test_timeout_accepts_a_float(self, monkeypatch):
+        config = reload_config(monkeypatch, None, {"MCP_SESSION_IDLE_TIMEOUT": "90.5"})
+
+        assert config.MCP_SESSION_IDLE_TIMEOUT == 90.5
+
+    def test_settings_reach_the_fastmcp_instance(self, monkeypatch):
+        """Regression: these must be constructor kwargs — the session manager is
+        built from mcp.settings when streamable_http_app() is first called, so
+        setting them afterwards has no effect."""
+        import importlib
+
+        reload_config(
+            monkeypatch,
+            None,
+            {"MCP_STATELESS_HTTP": "true", "MCP_MAX_SESSIONS": "7"},
+        )
+        import app.server
+
+        importlib.reload(app.server)
+        try:
+            assert app.server.mcp.settings.stateless_http is True
+            assert app.server.mcp.settings.max_sessions == 7
+        finally:
+            reload_config(monkeypatch)
+            importlib.reload(app.server)
+
+    def test_example_config_documents_the_defaults(self):
+        import json
+
+        server = json.loads(EXAMPLE_CONFIG.read_text())["server"]
+
+        assert server["stateless_http"] is False
+        assert server["json_response"] is False
+        assert server["session_idle_timeout"] == 1800
+        assert server["max_sessions"] == 10000

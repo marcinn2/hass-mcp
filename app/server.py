@@ -51,6 +51,10 @@ except Exception:
 from app.config import (  # noqa: E402
     MCP_ALLOW_HA_TOKENS,
     MCP_AUTH_TOKENS,
+    MCP_JSON_RESPONSE,
+    MCP_MAX_SESSIONS,
+    MCP_SESSION_IDLE_TIMEOUT,
+    MCP_STATELESS_HTTP,
     MCP_TRANSPORT,  # noqa: E402
     TOOLS_DISABLED,
     TOOLS_ENABLED,
@@ -58,7 +62,14 @@ from app.config import (  # noqa: E402
 from app.config import MCP_HOST as _HOST  # noqa: E402
 from app.config import MCP_PORT as _PORT  # noqa: E402
 
-# Initialize FastMCP with server name, version and bind address.
+# Initialize FastMCP with server name, version, bind address and session
+# settings.
+#
+# The session settings must reach the constructor: the session manager is built
+# from mcp.settings when streamable_http_app() is first called, so assigning
+# them afterwards has no effect. They are passed explicitly rather than
+# unpacked from a dict so that mypy can check each against FastMCP's signature.
+#
 # FastMCP does not accept a ``version`` keyword in the currently pinned range
 # (mcp>=1.27,<2), so the keyword is attempted first for forward compatibility
 # and we otherwise set it on the underlying low-level server.
@@ -68,9 +79,21 @@ try:
         version=__version__,  # type: ignore[call-arg]  # accepted by newer FastMCP only
         host=_HOST,
         port=_PORT,
+        stateless_http=MCP_STATELESS_HTTP,
+        json_response=MCP_JSON_RESPONSE,
+        session_idle_timeout=MCP_SESSION_IDLE_TIMEOUT,
+        max_sessions=MCP_MAX_SESSIONS,
     )
 except TypeError:
-    mcp = FastMCP(name="Hass-MCP", host=_HOST, port=_PORT)
+    mcp = FastMCP(
+        name="Hass-MCP",
+        host=_HOST,
+        port=_PORT,
+        stateless_http=MCP_STATELESS_HTTP,
+        json_response=MCP_JSON_RESPONSE,
+        session_idle_timeout=MCP_SESSION_IDLE_TIMEOUT,
+        max_sessions=MCP_MAX_SESSIONS,
+    )
     if hasattr(mcp, "_mcp_server"):
         # The underlying low-level server supports ``version`` – set it manually.
         mcp._mcp_server.version = __version__
@@ -831,6 +854,15 @@ def run_server() -> None:
             len(MCP_AUTH_TOKENS),
             "accepted" if MCP_ALLOW_HA_TOKENS else "rejected",
         )
+
+        if MCP_STATELESS_HTTP:
+            logger.info("Sessions disabled (stateless_http): each request is independent")
+        else:
+            logger.info(
+                "Sessions enabled: idle timeout %ss, max %d concurrent",
+                MCP_SESSION_IDLE_TIMEOUT,
+                MCP_MAX_SESSIONS,
+            )
 
         app = mcp.streamable_http_app() if transport == "streamable-http" else mcp.sse_app()
         app.add_middleware(BearerAuthMiddleware)
